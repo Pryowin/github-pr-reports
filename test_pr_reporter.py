@@ -58,6 +58,7 @@ def test_empty_repo(mock_config, mock_github, mock_db):
     assert stats.total_prs == 0
     assert stats.avg_age_days == 0
     assert stats.avg_comments == 0
+    assert stats.avg_comments_with_comments == 0
     assert stats.approved_prs == 0
     assert stats.prs_with_zero_comments == 0
 
@@ -77,6 +78,7 @@ def test_repo_with_prs(mock_config, mock_github, mock_db, mock_pr, mock_approved
     assert 3 <= stats.avg_age_days <= 4  # Average of 5 and 2 days
     assert stats.avg_age_days_excluding_oldest == 2  # Only the 2-day old PR
     assert stats.avg_comments == 4  # Average of 3 and 5 comments
+    assert stats.avg_comments_with_comments == 4  # Average of 3 and 5 comments (both have comments)
     assert stats.approved_prs == 1
     assert stats.oldest_pr_age == 5  # The older PR is 5 days old
     assert stats.oldest_pr_title == mock_pr.title
@@ -92,7 +94,7 @@ def test_generate_report(mock_config, mock_github, mock_db, mock_pr):
     mock_repo1 = Mock()
     mock_repo1.get_pulls.return_value = [mock_pr]  # 1 PR
     
-    # Create two PRs with different ages
+    # Create two PRs with different ages and comment counts
     mock_pr_old = Mock()
     mock_pr_old.created_at = datetime.now(timezone.utc) - timedelta(days=10)
     mock_pr_old.comments = 0  # No comments
@@ -101,7 +103,7 @@ def test_generate_report(mock_config, mock_github, mock_db, mock_pr):
 
     mock_pr_new = Mock()
     mock_pr_new.created_at = datetime.now(timezone.utc) - timedelta(days=3)
-    mock_pr_new.comments = 3
+    mock_pr_new.comments = 6  # 6 comments
     mock_pr_new.get_reviews.return_value = []
     mock_pr_new.title = "New PR"
     
@@ -139,6 +141,10 @@ def test_generate_report(mock_config, mock_github, mock_db, mock_pr):
     assert report['repo2'].avg_age_days == 6.5  # Average of 10 and 3 days
     assert report['repo1'].prs_with_zero_comments == 0  # PR has comments
     assert report['repo2'].prs_with_zero_comments == 1  # One PR has no comments
+    assert report['repo1'].avg_comments == 3  # One PR with 3 comments
+    assert report['repo2'].avg_comments == 3  # Average of 0 and 6 comments
+    assert report['repo1'].avg_comments_with_comments == 3  # One PR with 3 comments
+    assert report['repo2'].avg_comments_with_comments == 6  # Only counting the PR with 6 comments
     
     # Verify database save was called for each repo
     assert mock_db.return_value.save_stats.call_count == 2 

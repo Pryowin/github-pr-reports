@@ -21,6 +21,7 @@ def test_create_tables(db_manager):
         avg_age_days=2.5,
         avg_age_days_excluding_oldest=2.0,
         avg_comments=3.0,
+        avg_comments_with_comments=4.0,
         approved_prs=2,
         oldest_pr_age=10,
         oldest_pr_title="Test PR",
@@ -35,6 +36,7 @@ def test_create_tables(db_manager):
     assert result['avg_age_days'] == 2.5
     assert result['avg_age_days_excluding_oldest'] == 2.0
     assert result['avg_comments'] == 3.0
+    assert result['avg_comments_with_comments'] == 4.0
     assert result['approved_prs'] == 2
     assert result['oldest_pr_age'] == 10
     assert result['oldest_pr_title'] == "Test PR"
@@ -47,6 +49,7 @@ def test_save_and_get_stats(db_manager):
         avg_age_days=2.5,
         avg_age_days_excluding_oldest=2.0,
         avg_comments=3.0,
+        avg_comments_with_comments=4.0,
         approved_prs=2,
         oldest_pr_age=10,
         oldest_pr_title="Test PR",
@@ -65,6 +68,7 @@ def test_save_and_get_stats(db_manager):
     assert result['avg_age_days'] == 2.5
     assert result['avg_age_days_excluding_oldest'] == 2.0
     assert result['avg_comments'] == 3.0
+    assert result['avg_comments_with_comments'] == 4.0
     assert result['approved_prs'] == 2
     assert result['oldest_pr_age'] == 10
     assert result['oldest_pr_title'] == "Test PR"
@@ -79,6 +83,7 @@ def test_update_existing_stats(db_manager):
         avg_age_days=2.5,
         avg_age_days_excluding_oldest=2.0,
         avg_comments=3.0,
+        avg_comments_with_comments=4.0,
         approved_prs=2,
         oldest_pr_age=10,
         oldest_pr_title="Test PR",
@@ -92,6 +97,7 @@ def test_update_existing_stats(db_manager):
         avg_age_days=3.0,
         avg_age_days_excluding_oldest=2.5,
         avg_comments=4.0,
+        avg_comments_with_comments=5.0,
         approved_prs=3,
         oldest_pr_age=15,
         oldest_pr_title="Updated PR",
@@ -106,6 +112,7 @@ def test_update_existing_stats(db_manager):
     assert result['avg_age_days'] == 3.0
     assert result['avg_age_days_excluding_oldest'] == 2.5
     assert result['avg_comments'] == 4.0
+    assert result['avg_comments_with_comments'] == 5.0
     assert result['approved_prs'] == 3
     assert result['oldest_pr_age'] == 15
     assert result['oldest_pr_title'] == "Updated PR"
@@ -147,14 +154,21 @@ def test_schema_migration(db_manager):
     # Verify new columns exist and have default values
     with sqlite3.connect(db_manager.db_path) as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT * FROM pr_stats WHERE repo_name = 'test-repo'")
+        cursor.execute('''
+            SELECT repo_name, date, total_prs, avg_age_days, avg_age_days_excluding_oldest,
+                   avg_comments, avg_comments_with_comments, approved_prs, oldest_pr_age,
+                   oldest_pr_title, prs_with_zero_comments
+            FROM pr_stats 
+            WHERE repo_name = 'test-repo'
+        ''')
         row = cursor.fetchone()
         assert row is not None
-        assert len(row) == 10  # Should now have 10 columns (6 original + 4 new)
-        assert row[6] == 0  # oldest_pr_age default value
-        assert row[7] == ""  # oldest_pr_title default value
-        assert row[8] == 0  # avg_age_days_excluding_oldest default value
-        assert row[9] == 0  # prs_with_zero_comments default value
+        assert len(row) == 11  # Should now have 11 columns
+        assert row[4] == 0  # avg_age_days_excluding_oldest default value
+        assert row[6] == 0.0  # avg_comments_with_comments default value
+        assert row[8] == 0  # oldest_pr_age default value
+        assert row[9] == ""  # oldest_pr_title default value
+        assert row[10] == 0  # prs_with_zero_comments default value
 
 def test_get_nonexistent_stats(db_manager):
     result = db_manager.get_latest_stats('nonexistent-repo')

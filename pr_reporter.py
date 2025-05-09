@@ -16,6 +16,7 @@ class PRStats:
     avg_age_days: float
     avg_age_days_excluding_oldest: float
     avg_comments: float
+    avg_comments_with_comments: float
     approved_prs: int
     oldest_pr_age: int
     oldest_pr_title: str
@@ -49,13 +50,24 @@ class PRReporter:
         
         if not prs:
             self._print_progress("No open PRs found.\n")
-            stats = PRStats(0, 0, 0, 0, 0, 0, "", 0)
+            stats = PRStats(
+                total_prs=0,
+                avg_age_days=0,
+                avg_age_days_excluding_oldest=0,
+                avg_comments=0,
+                avg_comments_with_comments=0,
+                approved_prs=0,
+                oldest_pr_age=0,
+                oldest_pr_title="",
+                prs_with_zero_comments=0
+            )
             self.db.save_stats(repo_name, stats)
             return stats
 
         self._print_progress(f"Found {len(prs)} PRs. Analyzing...\n")
         ages = []
         comments = []
+        comments_with_comments = []  # Only PRs that have comments
         approved = 0
         oldest_pr_age = 0
         oldest_pr_title = ""
@@ -79,6 +91,8 @@ class PRReporter:
             comments.append(comment_count)
             if comment_count == 0:
                 prs_with_zero_comments += 1
+            else:
+                comments_with_comments.append(comment_count)
             
             # Check if PR is approved
             reviews = pr.get_reviews()
@@ -99,6 +113,7 @@ class PRReporter:
             avg_age_days=mean(ages) if ages else 0,
             avg_age_days_excluding_oldest=avg_age_excluding_oldest,
             avg_comments=mean(comments) if comments else 0,
+            avg_comments_with_comments=mean(comments_with_comments) if comments_with_comments else 0,
             approved_prs=approved,
             oldest_pr_age=oldest_pr_age,
             oldest_pr_title=oldest_pr_title,
@@ -130,6 +145,7 @@ def main():
         print(f"Average PR Age: {stats.avg_age_days:.1f} days")
         print(f"Average PR Age (excluding oldest): {stats.avg_age_days_excluding_oldest:.1f} days")
         print(f"Average Comments per PR: {stats.avg_comments:.1f}")
+        print(f"Average Comments (PRs with comments): {stats.avg_comments_with_comments:.1f}")
         print(f"PRs with Zero Comments: {stats.prs_with_zero_comments}")
         print(f"Approved PRs: {stats.approved_prs}")
         if stats.oldest_pr_age > 0:
@@ -143,6 +159,7 @@ def main():
             print(f"Average PR Age: {prev_stats['avg_age_days']:.1f} days")
             print(f"Average PR Age (excluding oldest): {prev_stats['avg_age_days_excluding_oldest']:.1f} days")
             print(f"Average Comments per PR: {prev_stats['avg_comments']:.1f}")
+            print(f"Average Comments (PRs with comments): {prev_stats['avg_comments_with_comments']:.1f}")
             print(f"PRs with Zero Comments: {prev_stats['prs_with_zero_comments']}")
             print(f"Approved PRs: {prev_stats['approved_prs']}")
             if prev_stats['oldest_pr_age'] > 0:
