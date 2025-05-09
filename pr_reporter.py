@@ -8,11 +8,13 @@ from typing import Dict, List, Any, Union
 from dataclasses import dataclass
 from statistics import mean
 from db_manager import DatabaseManager, PRStats
+import sys
 
 @dataclass
 class PRStats:
     total_prs: int
     avg_age_days: float
+    avg_age_days_excluding_oldest: float
     avg_comments: float
     approved_prs: int
     oldest_pr_age: int
@@ -35,22 +37,30 @@ class PRReporter:
         self.org = self.github.get_organization(self.config['github']['org'])
         self.db = DatabaseManager()
 
+    def _print_progress(self, message: str):
+        """Print a progress message and flush to ensure immediate display."""
+        print(message, end='', flush=True)
+
     def get_repo_stats(self, repo_name: str) -> PRStats:
+        self._print_progress(f"\nAnalyzing {repo_name}... ")
         repo = self.org.get_repo(repo_name)
         prs = list(repo.get_pulls(state='open'))
         
         if not prs:
-            stats = PRStats(0, 0, 0, 0, 0, "")
+            self._print_progress("No open PRs found.\n")
+            stats = PRStats(0, 0, 0, 0, 0, 0, "")
             self.db.save_stats(repo_name, stats)
             return stats
 
+        self._print_progress(f"Found {len(prs)} PRs. Analyzing...\n")
         ages = []
         comments = []
         approved = 0
         oldest_pr_age = 0
         oldest_pr_title = ""
 
-        for pr in prs:
+        for i, pr in enumerate(prs, 1):
+            self._print_progress(f"\rProcessing PR {i}/{len(prs)}... ")
             # Calculate age in days
             created_at = pr.created_at
             now = datetime.now(timezone.utc)
@@ -70,20 +80,33 @@ class PRReporter:
             if any(review.state == 'APPROVED' for review in reviews):
                 approved += 1
 
+        # Calculate average excluding oldest PR
+        if len(ages) > 1:
+            # If we have multiple PRs, exclude the oldest one
+            ages_excluding_oldest = [age for age in ages if age < oldest_pr_age]
+            avg_age_excluding_oldest = mean(ages_excluding_oldest) if ages_excluding_oldest else 0
+        else:
+            # If we only have one PR, it's both the oldest and the only one
+            avg_age_excluding_oldest = 0
+
         stats = PRStats(
             total_prs=len(prs),
             avg_age_days=mean(ages) if ages else 0,
+            avg_age_days_excluding_oldest=avg_age_excluding_oldest,
             avg_comments=mean(comments) if comments else 0,
             approved_prs=approved,
             oldest_pr_age=oldest_pr_age,
             oldest_pr_title=oldest_pr_title
         )
         self.db.save_stats(repo_name, stats)
+        self._print_progress("Done!\n")
         return stats
 
     def generate_report(self) -> Dict[str, PRStats]:
         report = {}
-        for repo_name in self.config['github']['repos']:
+        total_repos = len(self.config['github']['repos'])
+        for i, repo_name in enumerate(self.config['github']['repos'], 1):
+            self._print_progress(f"\nProcessing repository {i}/{total_repos}: ")
             report[repo_name] = self.get_repo_stats(repo_name)
         return report
 
@@ -99,6 +122,7 @@ def main():
         print(f"\nRepository: {repo_name}")
         print(f"Total Open PRs: {stats.total_prs}")
         print(f"Average PR Age: {stats.avg_age_days:.1f} days")
+        print(f"Average PR Age (excluding oldest): {stats.avg_age_days_excluding_oldest:.1f} days")
         print(f"Average Comments per PR: {stats.avg_comments:.1f}")
         print(f"Approved PRs: {stats.approved_prs}")
         if stats.oldest_pr_age > 0:
@@ -110,6 +134,7 @@ def main():
             print("\nPrevious Stats (from {})".format(prev_stats['date']))
             print(f"Total Open PRs: {prev_stats['total_prs']}")
             print(f"Average PR Age: {prev_stats['avg_age_days']:.1f} days")
+            print(f"Average PR Age (excluding oldest): {prev_stats['avg_age_days_excluding_oldest']:.1f} days")
             print(f"Average Comments per PR: {prev_stats['avg_comments']:.1f}")
             print(f"Approved PRs: {prev_stats['approved_prs']}")
             if prev_stats['oldest_pr_age'] > 0:

@@ -7,6 +7,7 @@ from dataclasses import dataclass
 class PRStats:
     total_prs: int
     avg_age_days: float
+    avg_age_days_excluding_oldest: float
     avg_comments: float
     approved_prs: int
     oldest_pr_age: int
@@ -27,6 +28,7 @@ class DatabaseManager:
                     date TEXT,
                     total_prs INTEGER,
                     avg_age_days REAL,
+                    avg_age_days_excluding_oldest REAL,
                     avg_comments REAL,
                     approved_prs INTEGER,
                     oldest_pr_age INTEGER,
@@ -50,6 +52,8 @@ class DatabaseManager:
                 cursor.execute('ALTER TABLE pr_stats ADD COLUMN oldest_pr_age INTEGER DEFAULT 0')
             if 'oldest_pr_title' not in columns:
                 cursor.execute('ALTER TABLE pr_stats ADD COLUMN oldest_pr_title TEXT DEFAULT ""')
+            if 'avg_age_days_excluding_oldest' not in columns:
+                cursor.execute('ALTER TABLE pr_stats ADD COLUMN avg_age_days_excluding_oldest REAL DEFAULT 0')
             
             conn.commit()
 
@@ -58,13 +62,14 @@ class DatabaseManager:
             cursor = conn.cursor()
             cursor.execute('''
                 INSERT OR REPLACE INTO pr_stats 
-                (repo_name, date, total_prs, avg_age_days, avg_comments, approved_prs, oldest_pr_age, oldest_pr_title)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                (repo_name, date, total_prs, avg_age_days, avg_age_days_excluding_oldest, avg_comments, approved_prs, oldest_pr_age, oldest_pr_title)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
                 repo_name,
                 datetime.now().strftime('%Y-%m-%d'),
                 stats.total_prs,
                 stats.avg_age_days,
+                stats.avg_age_days_excluding_oldest,
                 stats.avg_comments,
                 stats.approved_prs,
                 stats.oldest_pr_age,
@@ -76,7 +81,7 @@ class DatabaseManager:
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
             cursor.execute('''
-                SELECT date, total_prs, avg_age_days, avg_comments, approved_prs, oldest_pr_age, oldest_pr_title
+                SELECT date, total_prs, avg_age_days, avg_age_days_excluding_oldest, avg_comments, approved_prs, oldest_pr_age, oldest_pr_title
                 FROM pr_stats
                 WHERE repo_name = ?
                 ORDER BY date DESC
@@ -88,9 +93,10 @@ class DatabaseManager:
                     'date': row[0],
                     'total_prs': row[1],
                     'avg_age_days': row[2],
-                    'avg_comments': row[3],
-                    'approved_prs': row[4],
-                    'oldest_pr_age': row[5],
-                    'oldest_pr_title': row[6]
+                    'avg_age_days_excluding_oldest': row[3],
+                    'avg_comments': row[4],
+                    'approved_prs': row[5],
+                    'oldest_pr_age': row[6],
+                    'oldest_pr_title': row[7]
                 }
             return None 

@@ -19,6 +19,7 @@ def test_create_tables(db_manager):
     stats = PRStats(
         total_prs=5,
         avg_age_days=2.5,
+        avg_age_days_excluding_oldest=2.0,
         avg_comments=3.0,
         approved_prs=2,
         oldest_pr_age=10,
@@ -31,6 +32,7 @@ def test_create_tables(db_manager):
     assert result is not None
     assert result['total_prs'] == 5
     assert result['avg_age_days'] == 2.5
+    assert result['avg_age_days_excluding_oldest'] == 2.0
     assert result['avg_comments'] == 3.0
     assert result['approved_prs'] == 2
     assert result['oldest_pr_age'] == 10
@@ -41,6 +43,7 @@ def test_save_and_get_stats(db_manager):
     stats = PRStats(
         total_prs=5,
         avg_age_days=2.5,
+        avg_age_days_excluding_oldest=2.0,
         avg_comments=3.0,
         approved_prs=2,
         oldest_pr_age=10,
@@ -57,6 +60,7 @@ def test_save_and_get_stats(db_manager):
     assert result is not None
     assert result['total_prs'] == 5
     assert result['avg_age_days'] == 2.5
+    assert result['avg_age_days_excluding_oldest'] == 2.0
     assert result['avg_comments'] == 3.0
     assert result['approved_prs'] == 2
     assert result['oldest_pr_age'] == 10
@@ -69,6 +73,7 @@ def test_update_existing_stats(db_manager):
     initial_stats = PRStats(
         total_prs=5,
         avg_age_days=2.5,
+        avg_age_days_excluding_oldest=2.0,
         avg_comments=3.0,
         approved_prs=2,
         oldest_pr_age=10,
@@ -80,6 +85,7 @@ def test_update_existing_stats(db_manager):
     updated_stats = PRStats(
         total_prs=6,
         avg_age_days=3.0,
+        avg_age_days_excluding_oldest=2.5,
         avg_comments=4.0,
         approved_prs=3,
         oldest_pr_age=15,
@@ -92,6 +98,7 @@ def test_update_existing_stats(db_manager):
     assert result is not None
     assert result['total_prs'] == 6
     assert result['avg_age_days'] == 3.0
+    assert result['avg_age_days_excluding_oldest'] == 2.5
     assert result['avg_comments'] == 4.0
     assert result['approved_prs'] == 3
     assert result['oldest_pr_age'] == 15
@@ -136,9 +143,10 @@ def test_schema_migration(db_manager):
         cursor.execute("SELECT * FROM pr_stats WHERE repo_name = 'test-repo'")
         row = cursor.fetchone()
         assert row is not None
-        assert len(row) == 8  # Should now have 8 columns
+        assert len(row) == 9  # Should now have 9 columns (7 original + 2 new)
         assert row[6] == 0  # oldest_pr_age default value
         assert row[7] == ""  # oldest_pr_title default value
+        assert row[8] == 0  # avg_age_days_excluding_oldest default value
 
 def test_get_nonexistent_stats(db_manager):
     result = db_manager.get_latest_stats('nonexistent-repo')
