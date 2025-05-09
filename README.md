@@ -16,7 +16,7 @@ A tool to generate reports about open pull requests in GitHub repositories.
   - Details of the oldest PR
 - Stores historical data in a SQLite database
 - Shows comparison with previous day's stats
-- Verbose mode to show details of PRs with no comments
+- Verbose mode to show details of PRs with no comments that are marked as "Ready for Review"
 - Optional minimum age filter for PRs in verbose mode
 - Graceful error handling for missing or invalid configuration
 
@@ -49,7 +49,7 @@ Show help and available options:
 python pr_reporter.py --help
 ```
 
-With verbose mode to show PRs with no comments:
+With verbose mode to show PRs with no comments that are marked as "Ready for Review":
 ```bash
 python pr_reporter.py -v
 ```
@@ -63,7 +63,7 @@ python pr_reporter.py -v --min-age 5
 
 - `-h, --help`: Show help message and exit
 - `--config`: Path to config file (default: config.yaml)
-- `-v, --verbose`: Show detailed information about PRs with no comments, including their titles and URLs
+- `-v, --verbose`: Show detailed information about PRs with no comments that are marked as "Ready for Review", including their titles and URLs
 - `--min-age`: Minimum age in days for PRs to show in verbose mode. Only PRs with no comments that have been open for at least this many days will be shown. (default: 0)
 
 ### Error Handling
@@ -172,7 +172,7 @@ PRs with Zero Comments: 2
 Approved PRs: 1
 Oldest PR: Fix database connection timeout (15 days old)
 
-PRs with no comments:
+PRs with no comments (Ready for Review):
 (showing only PRs open for at least 5 days)
   - [15 days] Fix database connection timeout
     https://github.com/org/repo/pull/123

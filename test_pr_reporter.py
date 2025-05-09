@@ -1,7 +1,7 @@
 import pytest
 from datetime import datetime, timedelta, timezone
 from unittest.mock import Mock, patch
-from pr_reporter import PRReporter
+from pr_reporter import PRReporter, PRStats, PRDetail
 from pr_reporter import PRStats as ReporterPRStats
 from db_manager import PRStats as DBPRStats
 
@@ -36,15 +36,40 @@ def mock_approved_pr():
 
 @pytest.fixture
 def mock_github():
-    mock_github = Mock()
+    with patch('pr_reporter.Github') as mock_github:
+        yield mock_github
+
+@pytest.fixture
+def mock_org(mock_github):
     mock_org = Mock()
-    mock_github.get_organization.return_value = mock_org
-    return mock_github, mock_org
+    mock_github.return_value.get_organization.return_value = mock_org
+    return mock_org
+
+@pytest.fixture
+def mock_repo(mock_org):
+    mock_repo = Mock()
+    mock_org.get_repo.return_value = mock_repo
+    return mock_repo
 
 @pytest.fixture
 def mock_db():
     with patch('pr_reporter.DatabaseManager') as mock:
         yield mock
+
+def create_mock_pr(title, created_at, comments=0, labels=None, is_approved=False):
+    mock_pr = Mock()
+    mock_pr.title = title
+    mock_pr.created_at = created_at
+    mock_pr.comments = comments
+    mock_pr.labels = [Mock(name=label) for label in (labels or [])]
+    mock_pr.html_url = f"https://github.com/test-org/test-repo/pull/1"
+    
+    # Mock reviews
+    mock_review = Mock()
+    mock_review.state = 'APPROVED' if is_approved else 'COMMENTED'
+    mock_pr.get_reviews.return_value = [mock_review] if is_approved else []
+    
+    return mock_pr
 
 def test_empty_repo(mock_config, mock_github, mock_db):
     github_client, mock_org = mock_github
@@ -214,3 +239,84 @@ def test_min_age_filter(mock_config, mock_github, mock_db):
     assert stats.zero_comment_prs[0].title == "Old PR"  # 10 days old
     assert stats.zero_comment_prs[1].title == "Medium PR"  # 5 days old
     assert "New PR" not in [pr.title for pr in stats.zero_comment_prs]  # 2 days old, should be filtered out 
+
+def test_get_repo_stats_no_prs(mock_config, mock_repo):
+    mock_repo.get_pulls.return_value = []
+    reporter = PRReporter(mock_config)
+    stats = reporter.get_repo_stats('test-repo')
+    
+    assert stats.total_prs == 0
+    assert stats.avg_age_days == 0
+    assert stats.avg_comments == 0
+    assert stats.prs_with_zero_comments == 0
+    assert stats.zero_comment_prs == []
+
+def test_get_repo_stats_with_prs(mock_config, mock_repo):
+    now = datetime.now(timezone.utc)
+    prs = [
+        create_mock_pr("PR 1", now - timedelta(days=5), comments=2, labels=["Ready for Review"]),
+        create_mock_pr("PR 2", now - timedelta(days=10), comments=0, labels=["Ready for Review"]),
+        create_mock_pr("PR 3", now - timedelta(days=15), comments=3, labels=["Ready for Review"], is_approved=True)
+    ]
+    mock_repo.get_pulls.return_value = prs
+    
+    reporter = PRReporter(mock_config, verbose=True)
+    stats = reporter.get_repo_stats('test-repo')
+    
+    assert stats.total_prs == 3
+    assert stats.avg_age_days == 10.0
+    assert stats.avg_comments == 1.67
+    assert stats.prs_with_zero_comments == 1
+    assert stats.approved_prs == 1
+    assert len(stats.zero_comment_prs) == 1
+    assert stats.zero_comment_prs[0].title == "PR 2"
+
+def test_get_repo_stats_without_ready_label(mock_config, mock_repo):
+    now = datetime.now(timezone.utc)
+    prs = [
+        create_mock_pr("PR 1", now - timedelta(days=5), comments=0, labels=["WIP"]),
+        create_mock_pr("PR 2", now - timedelta(days=10), comments=0, labels=["Ready for Review"])
+    ]
+    mock_repo.get_pulls.return_value = prs
+    
+    reporter = PRReporter(mock_config, verbose=True)
+    stats = reporter.get_repo_stats('test-repo')
+    
+    assert stats.total_prs == 2
+    assert stats.prs_with_zero_comments == 2  # Still counts all PRs with zero comments
+    assert len(stats.zero_comment_prs) == 1  # But only shows the one with "Ready for Review" label
+    assert stats.zero_comment_prs[0].title == "PR 2"
+
+def test_get_repo_stats_with_min_age(mock_config, mock_repo):
+    now = datetime.now(timezone.utc)
+    prs = [
+        create_mock_pr("PR 1", now - timedelta(days=3), comments=0, labels=["Ready for Review"]),
+        create_mock_pr("PR 2", now - timedelta(days=7), comments=0, labels=["Ready for Review"])
+    ]
+    mock_repo.get_pulls.return_value = prs
+    
+    reporter = PRReporter(mock_config, verbose=True, min_age_days=5)
+    stats = reporter.get_repo_stats('test-repo')
+    
+    assert stats.total_prs == 2
+    assert stats.prs_with_zero_comments == 2
+    assert len(stats.zero_comment_prs) == 1  # Only shows PRs older than 5 days
+    assert stats.zero_comment_prs[0].title == "PR 2"
+
+def test_get_repo_stats_with_multiple_labels(mock_config, mock_repo):
+    now = datetime.now(timezone.utc)
+    prs = [
+        create_mock_pr("PR 1", now - timedelta(days=5), comments=0, 
+                      labels=["Ready for Review", "Enhancement"]),
+        create_mock_pr("PR 2", now - timedelta(days=7), comments=0, 
+                      labels=["WIP", "Bug"])
+    ]
+    mock_repo.get_pulls.return_value = prs
+    
+    reporter = PRReporter(mock_config, verbose=True)
+    stats = reporter.get_repo_stats('test-repo')
+    
+    assert stats.total_prs == 2
+    assert stats.prs_with_zero_comments == 2
+    assert len(stats.zero_comment_prs) == 1  # Only shows PR with "Ready for Review" label
+    assert stats.zero_comment_prs[0].title == "PR 1" 

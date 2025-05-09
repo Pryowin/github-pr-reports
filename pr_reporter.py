@@ -102,9 +102,13 @@ class PRReporter:
             # Get number of comments
             comment_count = pr.comments
             comments.append(comment_count)
+            
+            # Check if PR has "Ready for Review" label
+            has_ready_label = any(label.name == "Ready for Review" for label in pr.labels)
+            
             if comment_count == 0:
                 prs_with_zero_comments += 1
-                if self.verbose and age_days >= self.min_age_days:
+                if self.verbose and age_days >= self.min_age_days and has_ready_label:
                     zero_comment_prs.append(PRDetail(pr.title, age_days, pr.html_url))
             else:
                 comments_with_comments.append(comment_count)
