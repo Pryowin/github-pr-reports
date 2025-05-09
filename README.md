@@ -18,6 +18,7 @@ A tool to generate reports about open pull requests in GitHub repositories.
 - Shows comparison with previous day's stats
 - Verbose mode to show details of PRs with no comments
 - Optional minimum age filter for PRs in verbose mode
+- Graceful error handling for missing or invalid configuration
 
 ## Installation
 
@@ -64,6 +65,96 @@ python pr_reporter.py -v --min-age 5
 - `--config`: Path to config file (default: config.yaml)
 - `-v, --verbose`: Show detailed information about PRs with no comments, including their titles and URLs
 - `--min-age`: Minimum age in days for PRs to show in verbose mode. Only PRs with no comments that have been open for at least this many days will be shown. (default: 0)
+
+### Error Handling
+
+The program provides clear error messages for common issues:
+
+1. Missing config file:
+   ```
+   Error: Config file not found: config.yaml
+   
+   Please create a config.yaml file with your GitHub settings:
+   github:
+     org: your-org-name
+     auth_token: your-github-token
+     repos:
+       - repo1
+       - repo2
+   ```
+
+2. Invalid YAML format:
+   ```
+   Error: Invalid YAML format in config file.
+   
+   Common YAML formatting issues:
+   1. Incorrect indentation
+   2. Missing colons after keys
+   3. Missing dashes for list items
+   
+   Your config file should look like this:
+   github:
+     org: your-org-name
+     auth_token: your-github-token
+     repos:
+       - repo1
+       - repo2
+   
+   YAML Error details: <specific error>
+   ```
+
+3. Invalid GitHub token:
+   ```
+   Error: Invalid GitHub authentication token
+   
+   Please check:
+   1. The token is correct and hasn't expired
+   2. The token has the necessary permissions:
+      - repo (Full control of private repositories)
+      - read:org (Read organization data)
+   
+   You can create a new token at: https://github.com/settings/tokens
+   ```
+
+4. Organization not found:
+   ```
+   Error: Organization 'your-org-name' not found on GitHub
+   
+   Please check:
+   1. The organization name is spelled correctly
+   2. You have access to the organization
+   3. The organization exists
+   ```
+
+5. Repository not found:
+   ```
+   Error: The following repositories were not found in organization 'your-org-name':
+     - repo1
+     - repo2
+   
+   Please check:
+   1. The repository names are spelled correctly
+   2. The repositories exist in the organization
+   3. You have access to these repositories
+   ```
+
+6. Missing required configuration:
+   ```
+   Error: Missing required configuration: <missing field>
+   
+   Please ensure your config file includes all required fields:
+   github:
+     org: your-org-name
+     auth_token: your-github-token
+     repos:
+       - repo1
+       - repo2
+   ```
+
+7. Invalid configuration:
+   ```
+   Error: Invalid configuration: <error details>
+   ```
 
 ### Example Output
 

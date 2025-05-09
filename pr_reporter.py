@@ -9,6 +9,7 @@ from typing import Dict, List, Any, Union, NamedTuple
 from dataclasses import dataclass
 from statistics import mean
 from db_manager import DatabaseManager, PRStats
+import sys
 
 class PRDetail(NamedTuple):
     title: str
@@ -187,8 +188,122 @@ Examples:
         parser.error("Minimum age must be a non-negative integer")
 
     config_path = os.getenv('CONFIG_PATH', args.config)
-    reporter = PRReporter(config_path, verbose=args.verbose, min_age_days=args.min_age)
-    report = reporter.generate_report()
+    if not os.path.exists(config_path):
+        print(f"Error: Config file not found: {config_path}")
+        print("\nPlease create a config.yaml file with your GitHub settings:")
+        print("""
+github:
+  org: your-org-name
+  auth_token: your-github-token
+  repos:
+    - repo1
+    - repo2
+""")
+        sys.exit(1)
+
+    try:
+        with open(config_path, 'r') as f:
+            config = yaml.safe_load(f)
+    except yaml.YAMLError as e:
+        print("Error: Invalid YAML format in config file.")
+        print("\nCommon YAML formatting issues:")
+        print("1. Incorrect indentation")
+        print("2. Missing colons after keys")
+        print("3. Missing dashes for list items")
+        print("\nYour config file should look like this:")
+        print("""
+github:
+  org: your-org-name
+  auth_token: your-github-token
+  repos:
+    - repo1
+    - repo2
+""")
+        print(f"\nYAML Error details: {e}")
+        sys.exit(1)
+
+    try:
+        # Validate required fields
+        if not isinstance(config, dict) or 'github' not in config:
+            raise KeyError("Missing 'github' section")
+        
+        github_config = config['github']
+        required_fields = ['org', 'auth_token', 'repos']
+        missing_fields = [field for field in required_fields if field not in github_config]
+        if missing_fields:
+            raise KeyError(f"Missing required fields: {', '.join(missing_fields)}")
+        
+        if not isinstance(github_config['repos'], list):
+            raise ValueError("'repos' must be a list of repository names")
+        
+        if not github_config['repos']:
+            raise ValueError("'repos' list cannot be empty")
+
+        # Initialize GitHub client to validate token and org
+        auth = Auth.Token(github_config['auth_token'])
+        github = Github(auth=auth)
+        
+        try:
+            org = github.get_organization(github_config['org'])
+        except Exception as e:
+            if "Not Found" in str(e):
+                print(f"Error: Organization '{github_config['org']}' not found on GitHub")
+                print("\nPlease check:")
+                print("1. The organization name is spelled correctly")
+                print("2. You have access to the organization")
+                print("3. The organization exists")
+                sys.exit(1)
+            elif "Bad credentials" in str(e):
+                print("Error: Invalid GitHub authentication token")
+                print("\nPlease check:")
+                print("1. The token is correct and hasn't expired")
+                print("2. The token has the necessary permissions:")
+                print("   - repo (Full control of private repositories)")
+                print("   - read:org (Read organization data)")
+                print("\nYou can create a new token at: https://github.com/settings/tokens")
+                sys.exit(1)
+            else:
+                raise
+
+        # Validate repositories
+        invalid_repos = []
+        for repo_name in github_config['repos']:
+            try:
+                org.get_repo(repo_name)
+            except Exception:
+                invalid_repos.append(repo_name)
+        
+        if invalid_repos:
+            print(f"Error: The following repositories were not found in organization '{github_config['org']}':")
+            for repo in invalid_repos:
+                print(f"  - {repo}")
+            print("\nPlease check:")
+            print("1. The repository names are spelled correctly")
+            print("2. The repositories exist in the organization")
+            print("3. You have access to these repositories")
+            sys.exit(1)
+
+        reporter = PRReporter(config, verbose=args.verbose, min_age_days=args.min_age)
+        report = reporter.generate_report()
+
+    except KeyError as e:
+        print(f"Error: Missing required configuration: {e}")
+        print("\nPlease ensure your config file includes all required fields:")
+        print("""
+github:
+  org: your-org-name
+  auth_token: your-github-token
+  repos:
+    - repo1
+    - repo2
+""")
+        sys.exit(1)
+    except ValueError as e:
+        print(f"Error: Invalid configuration: {e}")
+        sys.exit(1)
+    except Exception as e:
+        print(f"Error: {e}")
+        sys.exit(1)
 
     print("\nGitHub PR Report")
     print("=" * 50)
