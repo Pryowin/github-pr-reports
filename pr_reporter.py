@@ -1,14 +1,19 @@
 #!/usr/bin/env python3
 
 import os
+import argparse
 from datetime import datetime, timezone
 import yaml
 from github import Github, Auth
-from typing import Dict, List, Any, Union
+from typing import Dict, List, Any, Union, NamedTuple
 from dataclasses import dataclass
 from statistics import mean
 from db_manager import DatabaseManager, PRStats
-import sys
+
+class PRDetail(NamedTuple):
+    title: str
+    age_days: int
+    url: str
 
 @dataclass
 class PRStats:
@@ -21,14 +26,18 @@ class PRStats:
     oldest_pr_age: int
     oldest_pr_title: str
     prs_with_zero_comments: int
+    # Not stored in DB, only used in verbose mode
+    zero_comment_prs: List[PRDetail] = None
 
 class PRReporter:
-    def __init__(self, config: Union[str, Dict], github_client=None):
+    def __init__(self, config: Union[str, Dict], verbose: bool = False, github_client=None):
         if isinstance(config, str):
             with open(config, 'r') as f:
                 self.config = yaml.safe_load(f)
         else:
             self.config = config
+        
+        self.verbose = verbose
         
         if github_client is None:
             auth = Auth.Token(self.config['github']['auth_token'])
@@ -59,7 +68,8 @@ class PRReporter:
                 approved_prs=0,
                 oldest_pr_age=0,
                 oldest_pr_title="",
-                prs_with_zero_comments=0
+                prs_with_zero_comments=0,
+                zero_comment_prs=[]
             )
             self.db.save_stats(repo_name, stats)
             return stats
@@ -72,6 +82,7 @@ class PRReporter:
         oldest_pr_age = 0
         oldest_pr_title = ""
         prs_with_zero_comments = 0
+        zero_comment_prs = []
 
         for i, pr in enumerate(prs, 1):
             self._print_progress(f"\rProcessing PR {i}/{len(prs)}... ")
@@ -91,6 +102,8 @@ class PRReporter:
             comments.append(comment_count)
             if comment_count == 0:
                 prs_with_zero_comments += 1
+                if self.verbose:
+                    zero_comment_prs.append(PRDetail(pr.title, age_days, pr.html_url))
             else:
                 comments_with_comments.append(comment_count)
             
@@ -117,7 +130,8 @@ class PRReporter:
             approved_prs=approved,
             oldest_pr_age=oldest_pr_age,
             oldest_pr_title=oldest_pr_title,
-            prs_with_zero_comments=prs_with_zero_comments
+            prs_with_zero_comments=prs_with_zero_comments,
+            zero_comment_prs=sorted(zero_comment_prs, key=lambda x: x.age_days, reverse=True) if self.verbose else None
         )
         self.db.save_stats(repo_name, stats)
         self._print_progress("Done!\n")
@@ -132,8 +146,13 @@ class PRReporter:
         return report
 
 def main():
-    config_path = os.getenv('CONFIG_PATH', 'config.yaml')
-    reporter = PRReporter(config_path)
+    parser = argparse.ArgumentParser(description='Generate GitHub PR statistics report')
+    parser.add_argument('--config', default='config.yaml', help='Path to config file')
+    parser.add_argument('-v', '--verbose', action='store_true', help='Show detailed information about PRs with no comments')
+    args = parser.parse_args()
+
+    config_path = os.getenv('CONFIG_PATH', args.config)
+    reporter = PRReporter(config_path, verbose=args.verbose)
     report = reporter.generate_report()
 
     print("\nGitHub PR Report")
@@ -150,6 +169,13 @@ def main():
         print(f"Approved PRs: {stats.approved_prs}")
         if stats.oldest_pr_age > 0:
             print(f"Oldest PR: {stats.oldest_pr_title} ({stats.oldest_pr_age} days old)")
+
+        # In verbose mode, show details of PRs with no comments
+        if args.verbose and stats.zero_comment_prs:
+            print("\nPRs with no comments:")
+            for pr in stats.zero_comment_prs:
+                print(f"  - [{pr.age_days} days] {pr.title}")
+                print(f"    {pr.url}")
 
         # Show previous stats if available
         prev_stats = reporter.db.get_latest_stats(repo_name)
