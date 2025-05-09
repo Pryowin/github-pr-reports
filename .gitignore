@@ -17,4 +17,7 @@ ENV/
 *.swo
 
 # Project specific
-config.yaml 
+config.yaml
+*.db
+*.sqlite
+*.sqlite3 

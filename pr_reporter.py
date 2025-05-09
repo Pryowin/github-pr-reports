@@ -7,6 +7,7 @@ from github import Github, Auth
 from typing import Dict, List, Any, Union
 from dataclasses import dataclass
 from statistics import mean
+from db_manager import DatabaseManager, PRStats
 
 @dataclass
 class PRStats:
@@ -30,13 +31,16 @@ class PRReporter:
             self.github = github_client
             
         self.org = self.github.get_organization(self.config['github']['org'])
+        self.db = DatabaseManager()
 
     def get_repo_stats(self, repo_name: str) -> PRStats:
         repo = self.org.get_repo(repo_name)
         prs = list(repo.get_pulls(state='open'))
         
         if not prs:
-            return PRStats(0, 0, 0, 0)
+            stats = PRStats(0, 0, 0, 0)
+            self.db.save_stats(repo_name, stats)
+            return stats
 
         ages = []
         comments = []
@@ -57,12 +61,14 @@ class PRReporter:
             if any(review.state == 'APPROVED' for review in reviews):
                 approved += 1
 
-        return PRStats(
+        stats = PRStats(
             total_prs=len(prs),
             avg_age_days=mean(ages) if ages else 0,
             avg_comments=mean(comments) if comments else 0,
             approved_prs=approved
         )
+        self.db.save_stats(repo_name, stats)
+        return stats
 
     def generate_report(self) -> Dict[str, PRStats]:
         report = {}
@@ -84,6 +90,15 @@ def main():
         print(f"Average PR Age: {stats.avg_age_days:.1f} days")
         print(f"Average Comments per PR: {stats.avg_comments:.1f}")
         print(f"Approved PRs: {stats.approved_prs}")
+
+        # Show previous stats if available
+        prev_stats = reporter.db.get_latest_stats(repo_name)
+        if prev_stats and prev_stats['date'] != datetime.now(timezone.utc).strftime('%Y-%m-%d'):
+            print("\nPrevious Stats (from {})".format(prev_stats['date']))
+            print(f"Total Open PRs: {prev_stats['total_prs']}")
+            print(f"Average PR Age: {prev_stats['avg_age_days']:.1f} days")
+            print(f"Average Comments per PR: {prev_stats['avg_comments']:.1f}")
+            print(f"Approved PRs: {prev_stats['approved_prs']}")
 
 if __name__ == "__main__":
     main() 
