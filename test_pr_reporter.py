@@ -59,6 +59,7 @@ def test_empty_repo(mock_config, mock_github, mock_db):
     assert stats.avg_age_days == 0
     assert stats.avg_comments == 0
     assert stats.approved_prs == 0
+    assert stats.prs_with_zero_comments == 0
 
     # Verify database save was called
     mock_db.return_value.save_stats.assert_called_once_with('repo1', stats)
@@ -79,6 +80,7 @@ def test_repo_with_prs(mock_config, mock_github, mock_db, mock_pr, mock_approved
     assert stats.approved_prs == 1
     assert stats.oldest_pr_age == 5  # The older PR is 5 days old
     assert stats.oldest_pr_title == mock_pr.title
+    assert stats.prs_with_zero_comments == 0  # Both PRs have comments
 
     # Verify database save was called
     mock_db.return_value.save_stats.assert_called_once_with('repo1', stats)
@@ -93,7 +95,7 @@ def test_generate_report(mock_config, mock_github, mock_db, mock_pr):
     # Create two PRs with different ages
     mock_pr_old = Mock()
     mock_pr_old.created_at = datetime.now(timezone.utc) - timedelta(days=10)
-    mock_pr_old.comments = 3
+    mock_pr_old.comments = 0  # No comments
     mock_pr_old.get_reviews.return_value = []
     mock_pr_old.title = "Old PR"
 
@@ -135,6 +137,8 @@ def test_generate_report(mock_config, mock_github, mock_db, mock_pr):
     assert report['repo1'].avg_age_days_excluding_oldest == 0  # No other PRs
     assert report['repo2'].avg_age_days_excluding_oldest == 3  # Only the 3-day old PR
     assert report['repo2'].avg_age_days == 6.5  # Average of 10 and 3 days
+    assert report['repo1'].prs_with_zero_comments == 0  # PR has comments
+    assert report['repo2'].prs_with_zero_comments == 1  # One PR has no comments
     
     # Verify database save was called for each repo
     assert mock_db.return_value.save_stats.call_count == 2 
