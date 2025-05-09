@@ -52,7 +52,7 @@ def test_empty_repo(mock_config, mock_github, mock_db):
     mock_repo.get_pulls.return_value = []
     mock_org.get_repo.return_value = mock_repo
 
-    reporter = PRReporter(mock_config, verbose=True, github_client=github_client)
+    reporter = PRReporter(mock_config, verbose=True, min_age_days=5, github_client=github_client)
     stats = reporter.get_repo_stats('repo1')
 
     assert stats.total_prs == 0
@@ -72,7 +72,7 @@ def test_repo_with_prs(mock_config, mock_github, mock_db, mock_pr, mock_approved
     mock_repo.get_pulls.return_value = [mock_pr, mock_approved_pr]
     mock_org.get_repo.return_value = mock_repo
 
-    reporter = PRReporter(mock_config, verbose=True, github_client=github_client)
+    reporter = PRReporter(mock_config, verbose=True, min_age_days=5, github_client=github_client)
     stats = reporter.get_repo_stats('repo1')
 
     assert stats.total_prs == 2
@@ -122,7 +122,7 @@ def test_generate_report(mock_config, mock_github, mock_db, mock_pr):
     
     mock_org.get_repo.side_effect = get_repo
 
-    reporter = PRReporter(mock_config, verbose=True, github_client=github_client)
+    reporter = PRReporter(mock_config, verbose=True, min_age_days=5, github_client=github_client)
     report = reporter.generate_report()
 
     # Debug assertions
@@ -150,9 +150,9 @@ def test_generate_report(mock_config, mock_github, mock_db, mock_pr):
     assert report['repo1'].avg_comments_with_comments == 3  # One PR with 3 comments
     assert report['repo2'].avg_comments_with_comments == 6  # Only counting the PR with 6 comments
     
-    # Verify verbose mode details
+    # Verify verbose mode details with minimum age
     assert len(report['repo1'].zero_comment_prs) == 0  # No PRs without comments
-    assert len(report['repo2'].zero_comment_prs) == 1  # One PR without comments
+    assert len(report['repo2'].zero_comment_prs) == 1  # One PR without comments and older than 5 days
     zero_comment_pr = report['repo2'].zero_comment_prs[0]
     assert zero_comment_pr.title == "Old PR"
     assert zero_comment_pr.age_days == 10
@@ -168,9 +168,49 @@ def test_non_verbose_mode(mock_config, mock_github, mock_db, mock_pr):
     mock_repo.get_pulls.return_value = [mock_pr]
     mock_org.get_repo.return_value = mock_repo
 
-    reporter = PRReporter(mock_config, verbose=False, github_client=github_client)
+    reporter = PRReporter(mock_config, verbose=False, min_age_days=5, github_client=github_client)
     stats = reporter.get_repo_stats('repo1')
 
     assert stats.total_prs == 1
     assert stats.prs_with_zero_comments == 1
-    assert stats.zero_comment_prs is None  # Should be None in non-verbose mode 
+    assert stats.zero_comment_prs is None  # Should be None in non-verbose mode
+
+def test_min_age_filter(mock_config, mock_github, mock_db):
+    github_client, mock_org = mock_github
+    mock_repo = Mock()
+    
+    # Create PRs with different ages and no comments
+    mock_pr_old = Mock()
+    mock_pr_old.created_at = datetime.now(timezone.utc) - timedelta(days=10)
+    mock_pr_old.comments = 0
+    mock_pr_old.get_reviews.return_value = []
+    mock_pr_old.title = "Old PR"
+    mock_pr_old.html_url = "https://github.com/test-org/repo/pull/1"
+
+    mock_pr_medium = Mock()
+    mock_pr_medium.created_at = datetime.now(timezone.utc) - timedelta(days=5)
+    mock_pr_medium.comments = 0
+    mock_pr_medium.get_reviews.return_value = []
+    mock_pr_medium.title = "Medium PR"
+    mock_pr_medium.html_url = "https://github.com/test-org/repo/pull/2"
+
+    mock_pr_new = Mock()
+    mock_pr_new.created_at = datetime.now(timezone.utc) - timedelta(days=2)
+    mock_pr_new.comments = 0
+    mock_pr_new.get_reviews.return_value = []
+    mock_pr_new.title = "New PR"
+    mock_pr_new.html_url = "https://github.com/test-org/repo/pull/3"
+    
+    mock_repo.get_pulls.return_value = [mock_pr_old, mock_pr_medium, mock_pr_new]
+    mock_org.get_repo.return_value = mock_repo
+
+    # Test with minimum age of 5 days
+    reporter = PRReporter(mock_config, verbose=True, min_age_days=5, github_client=github_client)
+    stats = reporter.get_repo_stats('repo1')
+
+    assert stats.total_prs == 3
+    assert stats.prs_with_zero_comments == 3
+    assert len(stats.zero_comment_prs) == 2  # Only PRs older than 5 days
+    assert stats.zero_comment_prs[0].title == "Old PR"  # 10 days old
+    assert stats.zero_comment_prs[1].title == "Medium PR"  # 5 days old
+    assert "New PR" not in [pr.title for pr in stats.zero_comment_prs]  # 2 days old, should be filtered out 

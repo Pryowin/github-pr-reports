@@ -1,64 +1,124 @@
 # GitHub PR Reporter
 
-A Python tool that generates reports for open Pull Requests across multiple GitHub repositories in an organization.
+A tool to generate reports about open pull requests in GitHub repositories.
 
 ## Features
 
-- Reports on multiple repositories in a GitHub organization
-- Shows statistics for each repository:
-  - Number of open PRs
-  - Average age of open PRs
+- Analyzes open pull requests across multiple repositories
+- Calculates statistics including:
+  - Total number of open PRs
+  - Average age of PRs
+  - Average age excluding the oldest PR
   - Average number of comments per PR
+  - Average number of comments for PRs that have comments
+  - Number of PRs with zero comments
   - Number of approved PRs
+  - Details of the oldest PR
+- Stores historical data in a SQLite database
+- Shows comparison with previous day's stats
+- Verbose mode to show details of PRs with no comments
+- Optional minimum age filter for PRs in verbose mode
 
-## Setup
+## Installation
 
 1. Clone the repository
-2. Create a virtual environment:
-   ```bash
-   python -m venv .venv
-   source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-   ```
-3. Install dependencies:
+2. Install dependencies:
    ```bash
    pip install -r requirements.txt
    ```
-4. Copy the example config file and update it with your settings:
-   ```bash
-   cp config.example.yaml config.yaml
+3. Create a `config.yaml` file with your GitHub configuration:
+   ```yaml
+   github:
+     org: your-org-name
+     auth_token: your-github-token
+     repos:
+       - repo1
+       - repo2
    ```
-
-## Configuration
-
-Edit `config.yaml` with your GitHub settings:
-- `url`: GitHub API URL (usually https://api.github.com)
-- `org`: Your GitHub organization name
-- `repos`: List of repository names to monitor
-- `auth_token`: Your GitHub personal access token
 
 ## Usage
 
-Run the reporter:
+Basic usage:
 ```bash
 python pr_reporter.py
 ```
 
-You can also specify a different config file location using the CONFIG_PATH environment variable:
+Show help and available options:
 ```bash
-CONFIG_PATH=/path/to/config.yaml python pr_reporter.py
+python pr_reporter.py --help
 ```
 
-## Running Tests
+With verbose mode to show PRs with no comments:
+```bash
+python pr_reporter.py -v
+```
 
-Run the test suite with pytest:
+With verbose mode and minimum age filter:
+```bash
+python pr_reporter.py -v --min-age 5
+```
+
+### Command Line Options
+
+- `-h, --help`: Show help message and exit
+- `--config`: Path to config file (default: config.yaml)
+- `-v, --verbose`: Show detailed information about PRs with no comments, including their titles and URLs
+- `--min-age`: Minimum age in days for PRs to show in verbose mode. Only PRs with no comments that have been open for at least this many days will be shown. (default: 0)
+
+### Example Output
+
+```
+GitHub PR Report
+==================================================
+
+Repository: example-repo
+Total Open PRs: 5
+Average PR Age: 7.2 days
+Average PR Age (excluding oldest): 5.1 days
+Average Comments per PR: 3.4
+Average Comments (PRs with comments): 4.2
+PRs with Zero Comments: 2
+Approved PRs: 1
+Oldest PR: Fix database connection timeout (15 days old)
+
+PRs with no comments:
+(showing only PRs open for at least 5 days)
+  - [15 days] Fix database connection timeout
+    https://github.com/org/repo/pull/123
+  - [7 days] Update documentation
+    https://github.com/org/repo/pull/124
+
+Previous Stats (from 2024-03-19)
+Total Open PRs: 4
+Average PR Age: 6.8 days
+Average PR Age (excluding oldest): 4.9 days
+Average Comments per PR: 3.2
+Average Comments (PRs with comments): 4.0
+PRs with Zero Comments: 1
+Approved PRs: 1
+Oldest PR: Fix database connection timeout (14 days old)
+```
+
+## Development
+
+### Running Tests
+
 ```bash
 pytest
 ```
 
-## Requirements
+### Database Schema
 
-- Python 3.6+
-- PyGithub
-- PyYAML
-- python-dotenv
-- pytest (for testing) 
+The tool uses SQLite to store historical data. The database schema includes:
+
+- Repository name
+- Date
+- Total PRs
+- Average PR age
+- Average PR age (excluding oldest)
+- Average comments
+- Average comments (PRs with comments)
+- Number of approved PRs
+- Oldest PR age
+- Oldest PR title
+- Number of PRs with zero comments 

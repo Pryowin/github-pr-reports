@@ -30,7 +30,7 @@ class PRStats:
     zero_comment_prs: List[PRDetail] = None
 
 class PRReporter:
-    def __init__(self, config: Union[str, Dict], verbose: bool = False, github_client=None):
+    def __init__(self, config: Union[str, Dict], verbose: bool = False, min_age_days: int = 0, github_client=None):
         if isinstance(config, str):
             with open(config, 'r') as f:
                 self.config = yaml.safe_load(f)
@@ -38,6 +38,7 @@ class PRReporter:
             self.config = config
         
         self.verbose = verbose
+        self.min_age_days = min_age_days
         
         if github_client is None:
             auth = Auth.Token(self.config['github']['auth_token'])
@@ -102,7 +103,7 @@ class PRReporter:
             comments.append(comment_count)
             if comment_count == 0:
                 prs_with_zero_comments += 1
-                if self.verbose:
+                if self.verbose and age_days >= self.min_age_days:
                     zero_comment_prs.append(PRDetail(pr.title, age_days, pr.html_url))
             else:
                 comments_with_comments.append(comment_count)
@@ -146,13 +147,47 @@ class PRReporter:
         return report
 
 def main():
-    parser = argparse.ArgumentParser(description='Generate GitHub PR statistics report')
-    parser.add_argument('--config', default='config.yaml', help='Path to config file')
-    parser.add_argument('-v', '--verbose', action='store_true', help='Show detailed information about PRs with no comments')
+    parser = argparse.ArgumentParser(
+        description='Generate GitHub PR statistics report',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog='''
+Examples:
+  Basic usage:
+    python pr_reporter.py
+
+  Show all PRs with no comments:
+    python pr_reporter.py -v
+
+  Show PRs with no comments that are at least 5 days old:
+    python pr_reporter.py -v --min-age 5
+
+  Use a different config file:
+    python pr_reporter.py --config custom_config.yaml
+'''
+    )
+    parser.add_argument(
+        '--config',
+        default='config.yaml',
+        help='Path to config file (default: config.yaml)'
+    )
+    parser.add_argument(
+        '-v', '--verbose',
+        action='store_true',
+        help='Show detailed information about PRs with no comments, including their titles and URLs'
+    )
+    parser.add_argument(
+        '--min-age',
+        type=int,
+        default=0,
+        help='Minimum age in days for PRs to show in verbose mode. Only PRs with no comments that have been open for at least this many days will be shown. (default: 0)'
+    )
     args = parser.parse_args()
 
+    if args.min_age < 0:
+        parser.error("Minimum age must be a non-negative integer")
+
     config_path = os.getenv('CONFIG_PATH', args.config)
-    reporter = PRReporter(config_path, verbose=args.verbose)
+    reporter = PRReporter(config_path, verbose=args.verbose, min_age_days=args.min_age)
     report = reporter.generate_report()
 
     print("\nGitHub PR Report")
@@ -173,6 +208,8 @@ def main():
         # In verbose mode, show details of PRs with no comments
         if args.verbose and stats.zero_comment_prs:
             print("\nPRs with no comments:")
+            if args.min_age > 0:
+                print(f"(showing only PRs open for at least {args.min_age} days)")
             for pr in stats.zero_comment_prs:
                 print(f"  - [{pr.age_days} days] {pr.title}")
                 print(f"    {pr.url}")
