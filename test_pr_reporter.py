@@ -76,6 +76,8 @@ def test_repo_with_prs(mock_config, mock_github, mock_db, mock_pr, mock_approved
     assert 3 <= stats.avg_age_days <= 4  # Average of 5 and 2 days
     assert stats.avg_comments == 4  # Average of 3 and 5 comments
     assert stats.approved_prs == 1
+    assert stats.oldest_pr_age == 5  # The older PR is 5 days old
+    assert stats.oldest_pr_title == mock_pr.title
 
     # Verify database save was called
     mock_db.return_value.save_stats.assert_called_once_with('repo1', stats)
@@ -112,6 +114,10 @@ def test_generate_report(mock_config, mock_github, mock_db, mock_pr):
     assert isinstance(report['repo2'], ReporterPRStats), f"repo2 stats type: {type(report['repo2'])}"
     assert report['repo1'].total_prs == 1
     assert report['repo2'].total_prs == 2
+    assert report['repo1'].oldest_pr_age == 5  # The PR is 5 days old
+    assert report['repo2'].oldest_pr_age == 5  # Both PRs are 5 days old
+    assert report['repo1'].oldest_pr_title == mock_pr.title
+    assert report['repo2'].oldest_pr_title == mock_pr.title
     
     # Verify database save was called for each repo
     assert mock_db.return_value.save_stats.call_count == 2 

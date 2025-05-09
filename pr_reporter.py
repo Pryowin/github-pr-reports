@@ -15,6 +15,8 @@ class PRStats:
     avg_age_days: float
     avg_comments: float
     approved_prs: int
+    oldest_pr_age: int
+    oldest_pr_title: str
 
 class PRReporter:
     def __init__(self, config: Union[str, Dict], github_client=None):
@@ -38,13 +40,15 @@ class PRReporter:
         prs = list(repo.get_pulls(state='open'))
         
         if not prs:
-            stats = PRStats(0, 0, 0, 0)
+            stats = PRStats(0, 0, 0, 0, 0, "")
             self.db.save_stats(repo_name, stats)
             return stats
 
         ages = []
         comments = []
         approved = 0
+        oldest_pr_age = 0
+        oldest_pr_title = ""
 
         for pr in prs:
             # Calculate age in days
@@ -52,6 +56,11 @@ class PRReporter:
             now = datetime.now(timezone.utc)
             age_days = (now - created_at).days
             ages.append(age_days)
+            
+            # Track oldest PR
+            if age_days > oldest_pr_age:
+                oldest_pr_age = age_days
+                oldest_pr_title = pr.title
             
             # Get number of comments
             comments.append(pr.comments)
@@ -65,7 +74,9 @@ class PRReporter:
             total_prs=len(prs),
             avg_age_days=mean(ages) if ages else 0,
             avg_comments=mean(comments) if comments else 0,
-            approved_prs=approved
+            approved_prs=approved,
+            oldest_pr_age=oldest_pr_age,
+            oldest_pr_title=oldest_pr_title
         )
         self.db.save_stats(repo_name, stats)
         return stats
@@ -90,6 +101,8 @@ def main():
         print(f"Average PR Age: {stats.avg_age_days:.1f} days")
         print(f"Average Comments per PR: {stats.avg_comments:.1f}")
         print(f"Approved PRs: {stats.approved_prs}")
+        if stats.oldest_pr_age > 0:
+            print(f"Oldest PR: {stats.oldest_pr_title} ({stats.oldest_pr_age} days old)")
 
         # Show previous stats if available
         prev_stats = reporter.db.get_latest_stats(repo_name)
@@ -99,6 +112,8 @@ def main():
             print(f"Average PR Age: {prev_stats['avg_age_days']:.1f} days")
             print(f"Average Comments per PR: {prev_stats['avg_comments']:.1f}")
             print(f"Approved PRs: {prev_stats['approved_prs']}")
+            if prev_stats['oldest_pr_age'] > 0:
+                print(f"Oldest PR: {prev_stats['oldest_pr_title']} ({prev_stats['oldest_pr_age']} days old)")
 
 if __name__ == "__main__":
     main() 

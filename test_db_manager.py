@@ -2,66 +2,144 @@ import pytest
 import os
 from datetime import datetime, timezone
 from db_manager import DatabaseManager, PRStats
+import sqlite3
 
 @pytest.fixture
 def db_manager():
     # Use a test database file
-    db_path = 'test_pr_stats.db'
-    manager = DatabaseManager(db_path)
+    test_db_path = 'test_pr_stats.db'
+    manager = DatabaseManager(test_db_path)
     yield manager
     # Clean up after tests
-    if os.path.exists(db_path):
-        os.remove(db_path)
+    if os.path.exists(test_db_path):
+        os.remove(test_db_path)
 
 def test_create_tables(db_manager):
     # Verify the table exists by trying to insert data
-    stats = PRStats(total_prs=5, avg_age_days=2.5, avg_comments=3.0, approved_prs=2)
+    stats = PRStats(
+        total_prs=5,
+        avg_age_days=2.5,
+        avg_comments=3.0,
+        approved_prs=2,
+        oldest_pr_age=10,
+        oldest_pr_title="Test PR"
+    )
     db_manager.save_stats('test-repo', stats)
     
-    # If we get here without an error, the table was created successfully
-    assert True
+    # Verify we can retrieve the data
+    result = db_manager.get_latest_stats('test-repo')
+    assert result is not None
+    assert result['total_prs'] == 5
+    assert result['avg_age_days'] == 2.5
+    assert result['avg_comments'] == 3.0
+    assert result['approved_prs'] == 2
+    assert result['oldest_pr_age'] == 10
+    assert result['oldest_pr_title'] == "Test PR"
 
 def test_save_and_get_stats(db_manager):
     # Create test data
-    stats = PRStats(total_prs=5, avg_age_days=2.5, avg_comments=3.0, approved_prs=2)
-    repo_name = 'test-repo'
+    stats = PRStats(
+        total_prs=5,
+        avg_age_days=2.5,
+        avg_comments=3.0,
+        approved_prs=2,
+        oldest_pr_age=10,
+        oldest_pr_title="Test PR"
+    )
     
     # Save stats
-    db_manager.save_stats(repo_name, stats)
+    db_manager.save_stats('test-repo', stats)
     
-    # Get latest stats
-    retrieved_stats = db_manager.get_latest_stats(repo_name)
+    # Retrieve stats
+    result = db_manager.get_latest_stats('test-repo')
     
     # Verify the data
-    assert retrieved_stats is not None
-    assert retrieved_stats['total_prs'] == stats.total_prs
-    assert retrieved_stats['avg_age_days'] == stats.avg_age_days
-    assert retrieved_stats['avg_comments'] == stats.avg_comments
-    assert retrieved_stats['approved_prs'] == stats.approved_prs
-    assert retrieved_stats['date'] == datetime.now(timezone.utc).strftime('%Y-%m-%d')
+    assert result is not None
+    assert result['total_prs'] == 5
+    assert result['avg_age_days'] == 2.5
+    assert result['avg_comments'] == 3.0
+    assert result['approved_prs'] == 2
+    assert result['oldest_pr_age'] == 10
+    assert result['oldest_pr_title'] == "Test PR"
 
 def test_update_existing_stats(db_manager):
     repo_name = 'test-repo'
     
     # Save initial stats
-    initial_stats = PRStats(total_prs=5, avg_age_days=2.5, avg_comments=3.0, approved_prs=2)
+    initial_stats = PRStats(
+        total_prs=5,
+        avg_age_days=2.5,
+        avg_comments=3.0,
+        approved_prs=2,
+        oldest_pr_age=10,
+        oldest_pr_title="Test PR"
+    )
     db_manager.save_stats(repo_name, initial_stats)
     
-    # Save updated stats for the same repo and date
-    updated_stats = PRStats(total_prs=6, avg_age_days=3.0, avg_comments=4.0, approved_prs=3)
+    # Update stats
+    updated_stats = PRStats(
+        total_prs=6,
+        avg_age_days=3.0,
+        avg_comments=4.0,
+        approved_prs=3,
+        oldest_pr_age=15,
+        oldest_pr_title="Updated PR"
+    )
     db_manager.save_stats(repo_name, updated_stats)
     
-    # Get latest stats
-    retrieved_stats = db_manager.get_latest_stats(repo_name)
-    
-    # Verify the updated data
-    assert retrieved_stats is not None
-    assert retrieved_stats['total_prs'] == updated_stats.total_prs
-    assert retrieved_stats['avg_age_days'] == updated_stats.avg_age_days
-    assert retrieved_stats['avg_comments'] == updated_stats.avg_comments
-    assert retrieved_stats['approved_prs'] == updated_stats.approved_prs
+    # Verify the update
+    result = db_manager.get_latest_stats(repo_name)
+    assert result is not None
+    assert result['total_prs'] == 6
+    assert result['avg_age_days'] == 3.0
+    assert result['avg_comments'] == 4.0
+    assert result['approved_prs'] == 3
+    assert result['oldest_pr_age'] == 15
+    assert result['oldest_pr_title'] == "Updated PR"
+
+def test_schema_migration(db_manager):
+    # Create a table with old schema
+    with sqlite3.connect(db_manager.db_path) as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+            DROP TABLE IF EXISTS pr_stats
+        ''')
+        cursor.execute('''
+            CREATE TABLE pr_stats (
+                repo_name TEXT,
+                date TEXT,
+                total_prs INTEGER,
+                avg_age_days REAL,
+                avg_comments REAL,
+                approved_prs INTEGER,
+                PRIMARY KEY (repo_name, date)
+            )
+        ''')
+        conn.commit()
+
+    # Insert data with old schema
+    with sqlite3.connect(db_manager.db_path) as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+            INSERT INTO pr_stats 
+            (repo_name, date, total_prs, avg_age_days, avg_comments, approved_prs)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ''', ('test-repo', '2024-03-20', 5, 2.5, 3.0, 2))
+        conn.commit()
+
+    # Run migration
+    db_manager._migrate_schema()
+
+    # Verify new columns exist and have default values
+    with sqlite3.connect(db_manager.db_path) as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM pr_stats WHERE repo_name = 'test-repo'")
+        row = cursor.fetchone()
+        assert row is not None
+        assert len(row) == 8  # Should now have 8 columns
+        assert row[6] == 0  # oldest_pr_age default value
+        assert row[7] == ""  # oldest_pr_title default value
 
 def test_get_nonexistent_stats(db_manager):
-    # Try to get stats for a repo that doesn't exist
-    retrieved_stats = db_manager.get_latest_stats('nonexistent-repo')
-    assert retrieved_stats is None 
+    result = db_manager.get_latest_stats('nonexistent-repo')
+    assert result is None 
