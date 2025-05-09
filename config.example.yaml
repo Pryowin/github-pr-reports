@@ -1,0 +1,8 @@
+github:
+  url: https://api.github.com
+  org: example-org
+  repos:
+    - repo1
+    - repo2
+    - repo3
+  auth_token: your-github-token-here 
