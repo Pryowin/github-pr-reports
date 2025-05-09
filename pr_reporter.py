@@ -152,6 +152,10 @@ class PRReporter:
         return report
 
 def main():
+    # Clear console
+    # Note: Windows console clearing functionality (cls) is untested
+    os.system('cls' if os.name == 'nt' else 'clear')
+    
     parser = argparse.ArgumentParser(
         description='Generate GitHub PR statistics report',
         formatter_class=argparse.RawDescriptionHelpFormatter,
