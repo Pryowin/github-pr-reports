@@ -1,42 +1,35 @@
 # GitHub PR Reporter
 
-A tool to generate reports about open pull requests in GitHub repositories.
+A tool to generate reports about open Pull Requests in GitHub repositories.
 
 ## Features
 
-- Analyzes open pull requests across multiple repositories
-- Calculates statistics including:
-  - Total number of open PRs
-  - Average age of PRs
-  - Average age excluding the oldest PR
-  - Average number of comments per PR
-  - Average number of comments for PRs that have comments
-  - Number of PRs with zero comments
-  - Number of approved PRs
-  - Details of the oldest PR
-- Stores historical data in a SQLite database
-- Shows comparison with previous day's stats
-- Color-coded comparison with historical data (red for increases, green for decreases)
-- Verbose mode to show details of PRs with no comments that are marked as "Ready for Review"
-- Optional minimum age filter for PRs in verbose mode
-- Graceful error handling for missing or invalid configuration
+- Track open PRs across multiple repositories
+- Calculate statistics like average PR age, comment counts, and more
+- Compare current stats with historical data
+- Generate line graphs showing PR trends over time
+- Store historical data in a SQLite database
 
 ## Installation
 
-1. Clone the repository
+1. Clone this repository
 2. Install dependencies:
    ```bash
    pip install -r requirements.txt
    ```
-3. Create a `config.yaml` file with your GitHub configuration:
-   ```yaml
-   github:
-     org: your-org-name
-     auth_token: your-github-token
-     repos:
-       - repo1
-       - repo2
-   ```
+
+## Configuration
+
+Create a `config.yaml` file with your GitHub settings:
+
+```yaml
+github:
+  org: your-org-name
+  auth_token: your-github-token
+  repos:
+    - repo1
+    - repo2
+```
 
 ## Usage
 
@@ -45,153 +38,94 @@ Basic usage:
 python pr_reporter.py
 ```
 
-Show help and available options:
-```bash
-python pr_reporter.py --help
-```
-
-With verbose mode to show PRs with no comments that are marked as "Ready for Review":
+Show all PRs with no comments:
 ```bash
 python pr_reporter.py -v
 ```
 
-With verbose mode and minimum age filter:
+Show PRs with no comments that are at least 5 days old:
 ```bash
 python pr_reporter.py -v --min-age 5
 ```
 
-Compare with stats from 7 days ago (default):
+Compare with stats from 7 days ago:
 ```bash
 python pr_reporter.py --compare
 ```
 
-Compare with stats from a specific number of days ago:
+Compare with stats from specific number of days ago:
 ```bash
 python pr_reporter.py --compare 14
 ```
 
-### Command Line Options
-
-- `-h, --help`: Show help message and exit
-- `--config`: Path to config file (default: config.yaml)
-- `-v, --verbose`: Show detailed information about PRs with no comments that are marked as "Ready for Review", including their titles and URLs
-- `--min-age`: Minimum age in days for PRs to show in verbose mode. Only PRs with no comments that have been open for at least this many days will be shown. (default: 0)
-- `--compare [DAYS]`: Compare current stats with stats from specified number of days ago. If DAYS is not provided, defaults to 7 days. Shows color-coded output (red for increases, green for decreases).
-
-### Error Handling
-
-The program provides clear error messages for common issues:
-
-1. Missing config file:
-   ```
-   Error: Config file not found: config.yaml
-   
-   Please create a config.yaml file with your GitHub settings:
-   github:
-     org: your-org-name
-     auth_token: your-github-token
-     repos:
-       - repo1
-       - repo2
-   ```
-
-2. Invalid YAML format:
-   ```
-   Error: Invalid YAML format in config file.
-   
-   Common YAML formatting issues:
-   1. Incorrect indentation
-   2. Missing colons after keys
-   3. Missing dashes for list items
-   
-   Your config file should look like this:
-   github:
-     org: your-org-name
-     auth_token: your-github-token
-     repos:
-       - repo1
-       - repo2
-   
-   YAML Error details: <specific error>
-   ```
-
-3. Invalid GitHub token:
-   ```
-   Error: Invalid GitHub authentication token
-   
-   Please check:
-   1. The token is correct and hasn't expired
-   2. The token has the necessary permissions:
-      - repo (Full control of private repositories)
-      - read:org (Read organization data)
-   
-   You can create a new token at: https://github.com/settings/tokens
-   ```
-
-4. Organization not found:
-   ```
-   Error: Organization 'your-org-name' not found on GitHub
-   
-   Please check:
-   1. The organization name is spelled correctly
-   2. You have access to the organization
-   3. The organization exists
-   ```
-
-5. Repository not found:
-   ```
-   Error: The following repositories were not found in organization 'your-org-name':
-     - repo1
-     - repo2
-   
-   Please check:
-   1. The repository names are spelled correctly
-   2. The repositories exist in the organization
-   3. You have access to these repositories
-   ```
-
-6. Missing required configuration:
-   ```
-   Error: Missing required configuration: <missing field>
-   
-   Please ensure your config file includes all required fields:
-   github:
-     org: your-org-name
-     auth_token: your-github-token
-     repos:
-       - repo1
-       - repo2
-   ```
-
-7. Invalid configuration:
-   ```
-   Error: Invalid configuration: <error details>
-   ```
-
-### Example Output
-
+Generate a line graph showing PR trends:
+```bash
+python pr_reporter.py --graph
 ```
-GitHub PR Report
-==================================================
 
-Repository: example-repo
-Total Open PRs: 5 (3)
-Average PR Age: 7.2 days (5.1)
-Average PR Age (excluding oldest): 5.1 days (4.2)
-Average Comments per PR: 3.4 (2.8)
-Average Comments (PRs with comments): 4.2 (3.5)
-PRs with Zero Comments: 2 (1)
-Approved PRs: 1 (0)
-
-Comparison date: 2024-03-19
-
-PRs with no comments (Ready for Review):
-(showing only PRs open for at least 5 days)
-  - [15 days] Fix database connection timeout
-    https://github.com/org/repo/pull/123
-  - [7 days] Update documentation
-    https://github.com/org/repo/pull/124
+Generate a line graph for a specific repository:
+```bash
+python pr_reporter.py --graph --repo repo1
 ```
+
+Generate a line graph for the last 60 days:
+```bash
+python pr_reporter.py --graph --days 60
+```
+
+Generate a line graph for a specific repository over the last 60 days:
+```bash
+python pr_reporter.py --graph --repo repo1 --days 60
+```
+
+Use a different config file:
+```bash
+python pr_reporter.py --config custom_config.yaml
+```
+
+## Graph Generation
+
+The `--graph` option generates a line graph showing the trend of open PRs over time. The graph:
+- Shows a separate line for each repository (or just one line if `--repo` is specified)
+- Displays the number of open PRs on the y-axis
+- Shows dates on the x-axis
+- Includes markers for each data point
+- Has a grid for better readability
+- Includes a legend identifying each repository
+- Saves the output as 'pr_trends.png' in the current directory
+
+Options for graph generation:
+- `--graph`: Generate a graph showing all repositories
+- `--repo REPO`: Generate a graph for a specific repository only
+- `--days N`: Show the last N days of data (default: 30)
+
+The graph uses only historical data from the database and does not make any new API calls.
+
+## Output
+
+The tool generates a report showing:
+- Total number of open PRs
+- Average PR age
+- Average PR age (excluding oldest)
+- Average comments per PR
+- Average comments (for PRs with comments)
+- Number of PRs with zero comments
+- Number of approved PRs
+- Details of the oldest PR
+- Comparison with previous stats (if --compare is used)
+
+In verbose mode (-v), it also shows:
+- List of PRs with no comments
+- PR titles and URLs
+- Age of each PR
+
+## Database
+
+The tool stores historical data in a SQLite database (`pr_stats.db`). This allows for:
+- Tracking trends over time
+- Comparing current stats with historical data
+- Generating graphs of PR trends
+- Avoiding unnecessary API calls when generating graphs
 
 ## Development
 

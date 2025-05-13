@@ -10,6 +10,9 @@ from dataclasses import dataclass
 from statistics import mean
 from db_manager import DatabaseManager, PRStats
 import sys
+import matplotlib.pyplot as plt
+from matplotlib.dates import DateFormatter
+import matplotlib.dates as mdates
 
 # ANSI color codes
 class Colors:
@@ -182,6 +185,55 @@ class PRReporter:
             report[repo_name] = self.get_repo_stats(repo_name)
         return report
 
+    def generate_graph(self, days: int = 30, repo_name: str = None) -> None:
+        """Generate a line graph showing PR trends for each repository."""
+        if repo_name and repo_name not in self.config['github']['repos']:
+            raise ValueError(f"Repository '{repo_name}' not found in config. Available repositories: {', '.join(self.config['github']['repos'])}")
+
+        plt.figure(figsize=(12, 6))
+        
+        # Get the date range
+        end_date = datetime.now(timezone.utc)
+        start_date = end_date - timedelta(days=days)
+        
+        # Get data for each repository
+        repos_to_graph = [repo_name] if repo_name else self.config['github']['repos']
+        
+        for repo in repos_to_graph:
+            # Get all stats for this repo within the date range
+            stats = self.db.get_stats_in_date_range(repo, start_date, end_date)
+            
+            if not stats:
+                continue
+                
+            # Extract dates and PR counts
+            dates = [datetime.strptime(stat['date'], '%Y-%m-%d') for stat in stats]
+            pr_counts = [stat['total_prs'] for stat in stats]
+            
+            # Plot the line
+            plt.plot(dates, pr_counts, marker='o', label=repo)
+        
+        # Customize the graph
+        title = f'Open PRs Trend for {repo_name}' if repo_name else 'Open PRs Trend'
+        plt.title(title)
+        plt.xlabel('Date')
+        plt.ylabel('Number of Open PRs')
+        plt.grid(True, linestyle='--', alpha=0.7)
+        
+        # Format x-axis dates
+        plt.gca().xaxis.set_major_formatter(DateFormatter('%Y-%m-%d'))
+        plt.gcf().autofmt_xdate()  # Rotate date labels
+        
+        # Add legend
+        plt.legend()
+        
+        # Adjust layout
+        plt.tight_layout()
+        
+        # Save the graph
+        plt.savefig('pr_trends.png')
+        plt.close()
+
 def main():
     # Clear console
     # Note: Windows console clearing functionality (cls) is untested
@@ -206,6 +258,12 @@ Examples:
 
   Compare with stats from specific number of days ago:
     python pr_reporter.py --compare 14
+
+  Generate a line graph showing PR trends:
+    python pr_reporter.py --graph
+
+  Generate a line graph for the last 60 days:
+    python pr_reporter.py --graph --days 60
 
   Use a different config file:
     python pr_reporter.py --config custom_config.yaml
@@ -234,6 +292,22 @@ Examples:
         type=int,
         help='Compare current stats with stats from specified number of days ago (default: 7)'
     )
+    parser.add_argument(
+        '--graph',
+        action='store_true',
+        help='Generate a line graph showing PR trends over time. Uses only historical data from the database.'
+    )
+    parser.add_argument(
+        '--days',
+        type=int,
+        default=30,
+        help='Number of days to show in the graph (default: 30). Only used with --graph option.'
+    )
+    parser.add_argument(
+        '--repo',
+        type=str,
+        help='Specific repository to graph. Only used with --graph option. If not specified, all repositories will be graphed.'
+    )
     args = parser.parse_args()
 
     if args.min_age < 0:
@@ -241,6 +315,9 @@ Examples:
 
     if args.compare is not None and args.compare < 0:
         parser.error("Comparison days must be a non-negative integer")
+
+    if args.repo and not args.graph:
+        parser.error("--repo can only be used with --graph")
 
     config_path = os.getenv('CONFIG_PATH', args.config)
     if not os.path.exists(config_path):
@@ -276,6 +353,10 @@ github:
 """)
         print(f"\nYAML Error details: {e}")
         sys.exit(1)
+
+    # Move repository validation here, after config is loaded
+    if args.repo and args.repo not in config['github']['repos']:
+        parser.error(f"Repository '{args.repo}' not found in config. Available repositories: {', '.join(config['github']['repos'])}")
 
     try:
         # Validate required fields
@@ -339,80 +420,73 @@ github:
             sys.exit(1)
 
         reporter = PRReporter(config, verbose=args.verbose, min_age_days=args.min_age, compare_days=args.compare)
+        
+        if args.graph:
+            # Generate graph without running API queries
+            reporter.generate_graph(days=args.days, repo_name=args.repo)
+            print(f"\nGraph has been saved as 'pr_trends.png'")
+            return  # Exit after generating graph
+        
+        # Generate report as usual
         report = reporter.generate_report()
 
-    except KeyError as e:
-        print(f"Error: Missing required configuration: {e}")
-        print("\nPlease ensure your config file includes all required fields:")
-        print("""
-github:
-  org: your-org-name
-  auth_token: your-github-token
-  repos:
-    - repo1
-    - repo2
-""")
-        sys.exit(1)
-    except ValueError as e:
-        print(f"Error: Invalid configuration: {e}")
-        sys.exit(1)
+        print("\nGitHub PR Report")
+        print("=" * 50)
+        
+        for repo_name, stats in report.items():
+            print(f"\nRepository: {repo_name}")
+            
+            # Get comparison stats if compare is enabled
+            comparison_stats = reporter._get_comparison_stats(repo_name) if args.compare is not None else None
+            
+            # Print stats with comparison if available
+            if comparison_stats:
+                print(f"Total Open PRs: {reporter._format_comparison(stats.total_prs, comparison_stats['total_prs'], '{:.0f}')}")
+                print(f"Average PR Age: {reporter._format_comparison(stats.avg_age_days, comparison_stats['avg_age_days'])} days")
+                print(f"Average PR Age (excluding oldest): {reporter._format_comparison(stats.avg_age_days_excluding_oldest, comparison_stats['avg_age_days_excluding_oldest'])} days")
+                print(f"Average Comments per PR: {reporter._format_comparison(stats.avg_comments, comparison_stats['avg_comments'])}")
+                print(f"Average Comments (PRs with comments): {reporter._format_comparison(stats.avg_comments_with_comments, comparison_stats['avg_comments_with_comments'])}")
+                print(f"PRs with Zero Comments: {reporter._format_comparison(stats.prs_with_zero_comments, comparison_stats['prs_with_zero_comments'], '{:.0f}')}")
+                print(f"Approved PRs: {reporter._format_comparison(stats.approved_prs, comparison_stats['approved_prs'], '{:.0f}')}")
+                print(f"\nComparison date: {comparison_stats['date']}")
+            else:
+                print(f"Total Open PRs: {stats.total_prs}")
+                print(f"Average PR Age: {stats.avg_age_days:.1f} days")
+                print(f"Average PR Age (excluding oldest): {stats.avg_age_days_excluding_oldest:.1f} days")
+                print(f"Average Comments per PR: {stats.avg_comments:.1f}")
+                print(f"Average Comments (PRs with comments): {stats.avg_comments_with_comments:.1f}")
+                print(f"PRs with Zero Comments: {stats.prs_with_zero_comments}")
+                print(f"Approved PRs: {stats.approved_prs}")
+
+            if stats.oldest_pr_age > 0:
+                print(f"Oldest PR: {stats.oldest_pr_title} ({stats.oldest_pr_age} days old)")
+
+            # In verbose mode, show details of PRs with no comments
+            if args.verbose and stats.zero_comment_prs:
+                print("\nPRs with no comments:")
+                if args.min_age > 0:
+                    print(f"(showing only PRs open for at least {args.min_age} days)")
+                for pr in stats.zero_comment_prs:
+                    print(f"  - [{pr.age_days} days] {pr.title}")
+                    print(f"    {pr.url}")
+
+            # Show previous stats if available
+            prev_stats = reporter.db.get_latest_stats(repo_name)
+            if prev_stats and prev_stats['date'] != datetime.now(timezone.utc).strftime('%Y-%m-%d'):
+                print("\nPrevious Stats (from {})".format(prev_stats['date']))
+                print(f"Total Open PRs: {prev_stats['total_prs']}")
+                print(f"Average PR Age: {prev_stats['avg_age_days']:.1f} days")
+                print(f"Average PR Age (excluding oldest): {prev_stats['avg_age_days_excluding_oldest']:.1f} days")
+                print(f"Average Comments per PR: {prev_stats['avg_comments']:.1f}")
+                print(f"Average Comments (PRs with comments): {prev_stats['avg_comments_with_comments']:.1f}")
+                print(f"PRs with Zero Comments: {prev_stats['prs_with_zero_comments']}")
+                print(f"Approved PRs: {prev_stats['approved_prs']}")
+                if prev_stats['oldest_pr_age'] > 0:
+                    print(f"Oldest PR: {prev_stats['oldest_pr_title']} ({prev_stats['oldest_pr_age']} days old)")
+
     except Exception as e:
         print(f"Error: {e}")
         sys.exit(1)
-
-    print("\nGitHub PR Report")
-    print("=" * 50)
-    
-    for repo_name, stats in report.items():
-        print(f"\nRepository: {repo_name}")
-        
-        # Get comparison stats if compare is enabled
-        comparison_stats = reporter._get_comparison_stats(repo_name) if args.compare is not None else None
-        
-        # Print stats with comparison if available
-        if comparison_stats:
-            print(f"Total Open PRs: {reporter._format_comparison(stats.total_prs, comparison_stats['total_prs'], '{:.0f}')}")
-            print(f"Average PR Age: {reporter._format_comparison(stats.avg_age_days, comparison_stats['avg_age_days'])} days")
-            print(f"Average PR Age (excluding oldest): {reporter._format_comparison(stats.avg_age_days_excluding_oldest, comparison_stats['avg_age_days_excluding_oldest'])} days")
-            print(f"Average Comments per PR: {reporter._format_comparison(stats.avg_comments, comparison_stats['avg_comments'])}")
-            print(f"Average Comments (PRs with comments): {reporter._format_comparison(stats.avg_comments_with_comments, comparison_stats['avg_comments_with_comments'])}")
-            print(f"PRs with Zero Comments: {reporter._format_comparison(stats.prs_with_zero_comments, comparison_stats['prs_with_zero_comments'], '{:.0f}')}")
-            print(f"Approved PRs: {reporter._format_comparison(stats.approved_prs, comparison_stats['approved_prs'], '{:.0f}')}")
-            print(f"\nComparison date: {comparison_stats['date']}")
-        else:
-            print(f"Total Open PRs: {stats.total_prs}")
-            print(f"Average PR Age: {stats.avg_age_days:.1f} days")
-            print(f"Average PR Age (excluding oldest): {stats.avg_age_days_excluding_oldest:.1f} days")
-            print(f"Average Comments per PR: {stats.avg_comments:.1f}")
-            print(f"Average Comments (PRs with comments): {stats.avg_comments_with_comments:.1f}")
-            print(f"PRs with Zero Comments: {stats.prs_with_zero_comments}")
-            print(f"Approved PRs: {stats.approved_prs}")
-
-        if stats.oldest_pr_age > 0:
-            print(f"Oldest PR: {stats.oldest_pr_title} ({stats.oldest_pr_age} days old)")
-
-        # In verbose mode, show details of PRs with no comments
-        if args.verbose and stats.zero_comment_prs:
-            print("\nPRs with no comments:")
-            if args.min_age > 0:
-                print(f"(showing only PRs open for at least {args.min_age} days)")
-            for pr in stats.zero_comment_prs:
-                print(f"  - [{pr.age_days} days] {pr.title}")
-                print(f"    {pr.url}")
-
-        # Show previous stats if available
-        prev_stats = reporter.db.get_latest_stats(repo_name)
-        if prev_stats and prev_stats['date'] != datetime.now(timezone.utc).strftime('%Y-%m-%d'):
-            print("\nPrevious Stats (from {})".format(prev_stats['date']))
-            print(f"Total Open PRs: {prev_stats['total_prs']}")
-            print(f"Average PR Age: {prev_stats['avg_age_days']:.1f} days")
-            print(f"Average PR Age (excluding oldest): {prev_stats['avg_age_days_excluding_oldest']:.1f} days")
-            print(f"Average Comments per PR: {prev_stats['avg_comments']:.1f}")
-            print(f"Average Comments (PRs with comments): {prev_stats['avg_comments_with_comments']:.1f}")
-            print(f"PRs with Zero Comments: {prev_stats['prs_with_zero_comments']}")
-            print(f"Approved PRs: {prev_stats['approved_prs']}")
-            if prev_stats['oldest_pr_age'] > 0:
-                print(f"Oldest PR: {prev_stats['oldest_pr_title']} ({prev_stats['oldest_pr_age']} days old)")
 
 if __name__ == "__main__":
     main() 

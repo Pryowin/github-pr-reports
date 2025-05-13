@@ -170,4 +170,34 @@ class DatabaseManager:
                     'oldest_pr_title': row[8],
                     'prs_with_zero_comments': row[9]
                 }
-            return None 
+            return None
+
+    def get_stats_in_date_range(self, repo_name: str, start_date: datetime, end_date: datetime) -> List[Dict]:
+        """Get all stats for a repository within a date range."""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT date, total_prs, avg_age_days, avg_age_days_excluding_oldest,
+                       avg_comments, avg_comments_with_comments, approved_prs,
+                       oldest_pr_age, oldest_pr_title, prs_with_zero_comments
+                FROM pr_stats
+                WHERE repo_name = ? AND date BETWEEN ? AND ?
+                ORDER BY date ASC
+            """, (repo_name, start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d')))
+            
+            rows = cursor.fetchall()
+            if not rows:
+                return []
+            
+            return [{
+                'date': row[0],
+                'total_prs': row[1],
+                'avg_age_days': row[2],
+                'avg_age_days_excluding_oldest': row[3],
+                'avg_comments': row[4],
+                'avg_comments_with_comments': row[5],
+                'approved_prs': row[6],
+                'oldest_pr_age': row[7],
+                'oldest_pr_title': row[8],
+                'prs_with_zero_comments': row[9]
+            } for row in rows] 

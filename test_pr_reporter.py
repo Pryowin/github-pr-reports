@@ -408,4 +408,82 @@ def test_get_comparison_stats_no_data(mock_config):
     with patch.object(reporter.db, 'get_stats_before_date', return_value=None):
         with patch.object(reporter.db, 'get_earliest_stats', return_value=None):
             stats = reporter._get_comparison_stats('test-repo')
-            assert stats is None 
+            assert stats is None
+
+def test_graph_generation_single_repo(mock_config, mock_github, mock_db):
+    github_client, mock_org = mock_github
+    reporter = PRReporter(mock_config, github_client=github_client)
+    
+    # Mock database response for a single repository
+    mock_stats = [
+        {
+            'date': '2024-03-19',
+            'total_prs': 5,
+            'avg_age_days': 7.2,
+            'avg_age_days_excluding_oldest': 5.1,
+            'avg_comments': 3.4,
+            'avg_comments_with_comments': 4.2,
+            'approved_prs': 1,
+            'oldest_pr_age': 15,
+            'oldest_pr_title': 'Test PR',
+            'prs_with_zero_comments': 2
+        },
+        {
+            'date': '2024-03-20',
+            'total_prs': 6,
+            'avg_age_days': 7.5,
+            'avg_age_days_excluding_oldest': 5.3,
+            'avg_comments': 3.6,
+            'avg_comments_with_comments': 4.4,
+            'approved_prs': 2,
+            'oldest_pr_age': 16,
+            'oldest_pr_title': 'Test PR 2',
+            'prs_with_zero_comments': 1
+        }
+    ]
+    
+    with patch.object(reporter.db, 'get_stats_in_date_range', return_value=mock_stats):
+        reporter.generate_graph(days=2, repo_name='repo1')
+        
+        # Verify database was queried with correct parameters
+        reporter.db.get_stats_in_date_range.assert_called_once()
+        call_args = reporter.db.get_stats_in_date_range.call_args[0]
+        assert call_args[0] == 'repo1'  # repo_name
+        assert isinstance(call_args[1], datetime)  # start_date
+        assert isinstance(call_args[2], datetime)  # end_date
+
+def test_graph_generation_all_repos(mock_config, mock_github, mock_db):
+    github_client, mock_org = mock_github
+    reporter = PRReporter(mock_config, github_client=github_client)
+    
+    # Mock database response for multiple repositories
+    mock_stats = {
+        'repo1': [
+            {'date': '2024-03-19', 'total_prs': 5},
+            {'date': '2024-03-20', 'total_prs': 6}
+        ],
+        'repo2': [
+            {'date': '2024-03-19', 'total_prs': 3},
+            {'date': '2024-03-20', 'total_prs': 4}
+        ]
+    }
+    
+    def mock_get_stats(repo_name, start_date, end_date):
+        return mock_stats.get(repo_name, [])
+    
+    with patch.object(reporter.db, 'get_stats_in_date_range', side_effect=mock_get_stats):
+        reporter.generate_graph(days=2)
+        
+        # Verify database was queried for each repository
+        assert reporter.db.get_stats_in_date_range.call_count == 2
+        calls = reporter.db.get_stats_in_date_range.call_args_list
+        assert calls[0][0][0] == 'repo1'  # First call for repo1
+        assert calls[1][0][0] == 'repo2'  # Second call for repo2
+
+def test_graph_generation_invalid_repo(mock_config, mock_github, mock_db):
+    github_client, mock_org = mock_github
+    reporter = PRReporter(mock_config, github_client=github_client)
+    
+    # Test with non-existent repository
+    with pytest.raises(ValueError):
+        reporter.generate_graph(days=2, repo_name='nonexistent-repo') 
