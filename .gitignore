@@ -4,6 +4,23 @@ __pycache__/
 *$py.class
 *.so
 .Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environment
 .env
 .venv
 env/
@@ -16,8 +33,17 @@ ENV/
 *.swp
 *.swo
 
+# Database
+*.db
+*.sqlite3
+
+# Generated graphs
+graphs/
+*.png
+
+# Logs
+*.log
+
 # Project specific
 config.yaml
-*.db
-*.sqlite
-*.sqlite3 
+*.sqlite 
