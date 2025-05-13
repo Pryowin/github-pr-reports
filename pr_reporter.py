@@ -2,7 +2,7 @@
 
 import os
 import argparse
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import yaml
 from github import Github, Auth
 from typing import Dict, List, Any, Union, NamedTuple
@@ -10,6 +10,13 @@ from dataclasses import dataclass
 from statistics import mean
 from db_manager import DatabaseManager, PRStats
 import sys
+
+# ANSI color codes
+class Colors:
+    RED = '\033[91m'
+    GREEN = '\033[92m'
+    WHITE = '\033[0m'
+    RESET = '\033[0m'
 
 class PRDetail(NamedTuple):
     title: str
@@ -31,7 +38,7 @@ class PRStats:
     zero_comment_prs: List[PRDetail] = None
 
 class PRReporter:
-    def __init__(self, config: Union[str, Dict], verbose: bool = False, min_age_days: int = 0, github_client=None):
+    def __init__(self, config: Union[str, Dict], verbose: bool = False, min_age_days: int = 0, compare_days: int = None, github_client=None):
         if isinstance(config, str):
             with open(config, 'r') as f:
                 self.config = yaml.safe_load(f)
@@ -40,6 +47,7 @@ class PRReporter:
         
         self.verbose = verbose
         self.min_age_days = min_age_days
+        self.compare_days = compare_days
         
         if github_client is None:
             auth = Auth.Token(self.config['github']['auth_token'])
@@ -53,6 +61,29 @@ class PRReporter:
     def _print_progress(self, message: str):
         """Print a progress message and flush to ensure immediate display."""
         print(message, end='', flush=True)
+
+    def _format_comparison(self, current: float, previous: float, format_str: str = "{:.1f}") -> str:
+        """Format a value with comparison to previous value, using color coding."""
+        if current > previous:
+            return f"{Colors.RED}{format_str.format(current)}{Colors.RESET} ({format_str.format(previous)})"
+        elif current < previous:
+            return f"{Colors.GREEN}{format_str.format(current)}{Colors.RESET} ({format_str.format(previous)})"
+        else:
+            return format_str.format(current)
+
+    def _get_comparison_stats(self, repo_name: str) -> Dict:
+        """Get stats from the specified number of days ago."""
+        if not self.compare_days:
+            return None
+
+        target_date = datetime.now(timezone.utc) - timedelta(days=self.compare_days)
+        stats = self.db.get_stats_before_date(repo_name, target_date)
+        
+        if not stats:
+            # If no stats found before target date, get the earliest stats
+            stats = self.db.get_earliest_stats(repo_name)
+            
+        return stats
 
     def get_repo_stats(self, repo_name: str) -> PRStats:
         self._print_progress(f"\nAnalyzing {repo_name}... ")
@@ -170,6 +201,12 @@ Examples:
   Show PRs with no comments that are at least 5 days old:
     python pr_reporter.py -v --min-age 5
 
+  Compare with stats from 7 days ago:
+    python pr_reporter.py --compare
+
+  Compare with stats from specific number of days ago:
+    python pr_reporter.py --compare 14
+
   Use a different config file:
     python pr_reporter.py --config custom_config.yaml
 '''
@@ -190,10 +227,20 @@ Examples:
         default=0,
         help='Minimum age in days for PRs to show in verbose mode. Only PRs with no comments that have been open for at least this many days will be shown. (default: 0)'
     )
+    parser.add_argument(
+        '--compare',
+        nargs='?',
+        const=7,
+        type=int,
+        help='Compare current stats with stats from specified number of days ago (default: 7)'
+    )
     args = parser.parse_args()
 
     if args.min_age < 0:
         parser.error("Minimum age must be a non-negative integer")
+
+    if args.compare is not None and args.compare < 0:
+        parser.error("Comparison days must be a non-negative integer")
 
     config_path = os.getenv('CONFIG_PATH', args.config)
     if not os.path.exists(config_path):
@@ -291,7 +338,7 @@ github:
             print("3. You have access to these repositories")
             sys.exit(1)
 
-        reporter = PRReporter(config, verbose=args.verbose, min_age_days=args.min_age)
+        reporter = PRReporter(config, verbose=args.verbose, min_age_days=args.min_age, compare_days=args.compare)
         report = reporter.generate_report()
 
     except KeyError as e:
@@ -318,13 +365,29 @@ github:
     
     for repo_name, stats in report.items():
         print(f"\nRepository: {repo_name}")
-        print(f"Total Open PRs: {stats.total_prs}")
-        print(f"Average PR Age: {stats.avg_age_days:.1f} days")
-        print(f"Average PR Age (excluding oldest): {stats.avg_age_days_excluding_oldest:.1f} days")
-        print(f"Average Comments per PR: {stats.avg_comments:.1f}")
-        print(f"Average Comments (PRs with comments): {stats.avg_comments_with_comments:.1f}")
-        print(f"PRs with Zero Comments: {stats.prs_with_zero_comments}")
-        print(f"Approved PRs: {stats.approved_prs}")
+        
+        # Get comparison stats if compare is enabled
+        comparison_stats = reporter._get_comparison_stats(repo_name) if args.compare is not None else None
+        
+        # Print stats with comparison if available
+        if comparison_stats:
+            print(f"Total Open PRs: {reporter._format_comparison(stats.total_prs, comparison_stats['total_prs'], '{:.0f}')}")
+            print(f"Average PR Age: {reporter._format_comparison(stats.avg_age_days, comparison_stats['avg_age_days'])} days")
+            print(f"Average PR Age (excluding oldest): {reporter._format_comparison(stats.avg_age_days_excluding_oldest, comparison_stats['avg_age_days_excluding_oldest'])} days")
+            print(f"Average Comments per PR: {reporter._format_comparison(stats.avg_comments, comparison_stats['avg_comments'])}")
+            print(f"Average Comments (PRs with comments): {reporter._format_comparison(stats.avg_comments_with_comments, comparison_stats['avg_comments_with_comments'])}")
+            print(f"PRs with Zero Comments: {reporter._format_comparison(stats.prs_with_zero_comments, comparison_stats['prs_with_zero_comments'], '{:.0f}')}")
+            print(f"Approved PRs: {reporter._format_comparison(stats.approved_prs, comparison_stats['approved_prs'], '{:.0f}')}")
+            print(f"\nComparison date: {comparison_stats['date']}")
+        else:
+            print(f"Total Open PRs: {stats.total_prs}")
+            print(f"Average PR Age: {stats.avg_age_days:.1f} days")
+            print(f"Average PR Age (excluding oldest): {stats.avg_age_days_excluding_oldest:.1f} days")
+            print(f"Average Comments per PR: {stats.avg_comments:.1f}")
+            print(f"Average Comments (PRs with comments): {stats.avg_comments_with_comments:.1f}")
+            print(f"PRs with Zero Comments: {stats.prs_with_zero_comments}")
+            print(f"Approved PRs: {stats.approved_prs}")
+
         if stats.oldest_pr_age > 0:
             print(f"Oldest PR: {stats.oldest_pr_title} ({stats.oldest_pr_age} days old)")
 

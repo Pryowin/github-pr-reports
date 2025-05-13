@@ -16,6 +16,7 @@ A tool to generate reports about open pull requests in GitHub repositories.
   - Details of the oldest PR
 - Stores historical data in a SQLite database
 - Shows comparison with previous day's stats
+- Color-coded comparison with historical data (red for increases, green for decreases)
 - Verbose mode to show details of PRs with no comments that are marked as "Ready for Review"
 - Optional minimum age filter for PRs in verbose mode
 - Graceful error handling for missing or invalid configuration
@@ -59,12 +60,23 @@ With verbose mode and minimum age filter:
 python pr_reporter.py -v --min-age 5
 ```
 
+Compare with stats from 7 days ago (default):
+```bash
+python pr_reporter.py --compare
+```
+
+Compare with stats from a specific number of days ago:
+```bash
+python pr_reporter.py --compare 14
+```
+
 ### Command Line Options
 
 - `-h, --help`: Show help message and exit
 - `--config`: Path to config file (default: config.yaml)
 - `-v, --verbose`: Show detailed information about PRs with no comments that are marked as "Ready for Review", including their titles and URLs
 - `--min-age`: Minimum age in days for PRs to show in verbose mode. Only PRs with no comments that have been open for at least this many days will be shown. (default: 0)
+- `--compare [DAYS]`: Compare current stats with stats from specified number of days ago. If DAYS is not provided, defaults to 7 days. Shows color-coded output (red for increases, green for decreases).
 
 ### Error Handling
 
@@ -163,14 +175,15 @@ GitHub PR Report
 ==================================================
 
 Repository: example-repo
-Total Open PRs: 5
-Average PR Age: 7.2 days
-Average PR Age (excluding oldest): 5.1 days
-Average Comments per PR: 3.4
-Average Comments (PRs with comments): 4.2
-PRs with Zero Comments: 2
-Approved PRs: 1
-Oldest PR: Fix database connection timeout (15 days old)
+Total Open PRs: 5 (3)
+Average PR Age: 7.2 days (5.1)
+Average PR Age (excluding oldest): 5.1 days (4.2)
+Average Comments per PR: 3.4 (2.8)
+Average Comments (PRs with comments): 4.2 (3.5)
+PRs with Zero Comments: 2 (1)
+Approved PRs: 1 (0)
+
+Comparison date: 2024-03-19
 
 PRs with no comments (Ready for Review):
 (showing only PRs open for at least 5 days)
@@ -178,16 +191,6 @@ PRs with no comments (Ready for Review):
     https://github.com/org/repo/pull/123
   - [7 days] Update documentation
     https://github.com/org/repo/pull/124
-
-Previous Stats (from 2024-03-19)
-Total Open PRs: 4
-Average PR Age: 6.8 days
-Average PR Age (excluding oldest): 4.9 days
-Average Comments per PR: 3.2
-Average Comments (PRs with comments): 4.0
-PRs with Zero Comments: 1
-Approved PRs: 1
-Oldest PR: Fix database connection timeout (14 days old)
 ```
 
 ## Development
