@@ -41,7 +41,7 @@ class PRStats:
     zero_comment_prs: List[PRDetail] = None
 
 class PRReporter:
-    def __init__(self, config: Union[str, Dict], verbose: bool = False, min_age_days: int = 0, compare_days: int = None, github_client=None):
+    def __init__(self, config: Union[str, Dict], verbose: bool = False, min_age_days: int = 0, compare_days: int = None, github_client=None, dbonly: bool = False):
         if isinstance(config, str):
             with open(config, 'r') as f:
                 self.config = yaml.safe_load(f)
@@ -51,14 +51,17 @@ class PRReporter:
         self.verbose = verbose
         self.min_age_days = min_age_days
         self.compare_days = compare_days
+        self.dbonly = dbonly
         
-        if github_client is None:
-            auth = Auth.Token(self.config['github']['auth_token'])
-            self.github = Github(auth=auth)
-        else:
-            self.github = github_client
-            
-        self.org = self.github.get_organization(self.config['github']['org'])
+        if not dbonly:
+            if github_client is None:
+                auth = Auth.Token(self.config['github']['auth_token'])
+                self.github = Github(auth=auth)
+            else:
+                self.github = github_client
+                
+            self.org = self.github.get_organization(self.config['github']['org'])
+        
         self.db = DatabaseManager()
 
     def _print_progress(self, message: str):
@@ -67,6 +70,10 @@ class PRReporter:
 
     def _format_comparison(self, current: float, previous: float, format_str: str = "{:.1f}") -> str:
         """Format a value with comparison to previous value, using color coding."""
+        # Ensure both values are float for comparison
+        current = float(current)
+        previous = float(previous)
+        
         if current > previous:
             return f"{Colors.RED}{format_str.format(current)}{Colors.RESET} ({format_str.format(previous)})"
         elif current < previous:
@@ -86,10 +93,40 @@ class PRReporter:
             # If no stats found before target date, get the earliest stats
             stats = self.db.get_earliest_stats(repo_name)
             
+        if stats:
+            # Convert numeric values to float
+            for key in ['total_prs', 'avg_age_days', 'avg_age_days_excluding_oldest', 
+                       'avg_comments', 'avg_comments_with_comments', 'approved_prs', 
+                       'oldest_pr_age', 'prs_with_zero_comments']:
+                if key in stats:
+                    stats[key] = float(stats[key])
+            
         return stats
 
     def get_repo_stats(self, repo_name: str) -> PRStats:
+        """Get statistics for a repository, either from API or database."""
         self._print_progress(f"\nAnalyzing {repo_name}... ")
+        
+        if self.dbonly:
+            # Get today's stats from database
+            today = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+            stats = self.db.get_stats_for_date(repo_name, today)
+            if not stats:
+                raise ValueError(f"No data found in database for {repo_name} on {today}. Please run without --dbonly to fetch fresh data.")
+            return PRStats(
+                total_prs=int(stats['total_prs']),
+                avg_age_days=float(stats['avg_age_days']),
+                avg_age_days_excluding_oldest=float(stats['avg_age_days_excluding_oldest']),
+                avg_comments=float(stats['avg_comments']),
+                avg_comments_with_comments=float(stats['avg_comments_with_comments']),
+                approved_prs=int(stats['approved_prs']),
+                oldest_pr_age=int(stats['oldest_pr_age']),
+                oldest_pr_title=str(stats['oldest_pr_title']),
+                prs_with_zero_comments=int(stats['prs_with_zero_comments']),
+                zero_comment_prs=[]  # Not stored in DB
+            )
+
+        # Regular API-based flow
         repo = self.org.get_repo(repo_name)
         prs = list(repo.get_pulls(state='open'))
         
@@ -320,6 +357,11 @@ Examples:
         type=str,
         help='Specific repository to graph. Only used with --graph option. If not specified, all repositories will be graphed.'
     )
+    parser.add_argument(
+        '--dbonly',
+        action='store_true',
+        help='Use only database values, do not make API calls. Will show an error if no data exists for current date.'
+    )
     args = parser.parse_args()
 
     if args.min_age < 0:
@@ -431,7 +473,7 @@ github:
             print("3. You have access to these repositories")
             sys.exit(1)
 
-        reporter = PRReporter(config, verbose=args.verbose, min_age_days=args.min_age, compare_days=args.compare)
+        reporter = PRReporter(config, verbose=args.verbose, min_age_days=args.min_age, compare_days=args.compare, dbonly=args.dbonly)
         
         if args.graph:
             # Generate graph without running API queries

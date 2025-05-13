@@ -530,4 +530,54 @@ def test_graph_generation_filename_format(mock_config, mock_github, mock_db):
             if os.path.exists('graphs'):
                 for file in os.listdir('graphs'):
                     os.remove(os.path.join('graphs', file))
-                os.rmdir('graphs') 
+                os.rmdir('graphs')
+
+def test_dbonly_mode_with_data(mock_config, mock_github, mock_db):
+    github_client, mock_org = mock_github
+    reporter = PRReporter(mock_config, github_client=github_client, dbonly=True)
+    
+    # Mock database response
+    mock_stats = {
+        'date': '2024-03-21',
+        'total_prs': 5,
+        'avg_age_days': 7.2,
+        'avg_age_days_excluding_oldest': 5.1,
+        'avg_comments': 3.4,
+        'avg_comments_with_comments': 4.2,
+        'approved_prs': 1,
+        'oldest_pr_age': 15,
+        'oldest_pr_title': 'Test PR',
+        'prs_with_zero_comments': 2
+    }
+    
+    with patch.object(reporter.db, 'get_stats_for_date', return_value=mock_stats):
+        stats = reporter.get_repo_stats('repo1')
+        
+        # Verify stats were loaded from database
+        assert stats.total_prs == 5
+        assert stats.avg_age_days == 7.2
+        assert stats.avg_comments == 3.4
+        assert stats.approved_prs == 1
+        
+        # Verify no API calls were made
+        mock_org.get_repo.assert_not_called()
+
+def test_dbonly_mode_no_data(mock_config, mock_github, mock_db):
+    github_client, mock_org = mock_github
+    reporter = PRReporter(mock_config, github_client=github_client, dbonly=True)
+    
+    # Mock database response for no data
+    with patch.object(reporter.db, 'get_stats_for_date', return_value=None):
+        with pytest.raises(ValueError) as exc_info:
+            reporter.get_repo_stats('repo1')
+        
+        assert "No data found in database" in str(exc_info.value)
+        
+        # Verify no API calls were made
+        mock_org.get_repo.assert_not_called()
+
+def test_dbonly_mode_github_not_initialized(mock_config, mock_github, mock_db):
+    # Test that GitHub client is not initialized in dbonly mode
+    reporter = PRReporter(mock_config, dbonly=True)
+    assert not hasattr(reporter, 'github')
+    assert not hasattr(reporter, 'org') 

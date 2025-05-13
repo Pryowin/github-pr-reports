@@ -78,6 +78,11 @@ Generate a line graph for a specific repository over the last 60 days:
 python pr_reporter.py --graph --repo repo1 --days 60
 ```
 
+Use database values only (no API calls):
+```bash
+python pr_reporter.py --dbonly
+```
+
 Use a different config file:
 ```bash
 python pr_reporter.py --config custom_config.yaml
@@ -103,6 +108,21 @@ Options for graph generation:
 - `--days N`: Show the last N days of data (default: 30)
 
 The graph uses only historical data from the database and does not make any new API calls.
+
+## Database Mode
+
+The `--dbonly` option allows you to run the tool using only data from the database, without making any API calls. This is useful for:
+- Generating reports when you don't have API access
+- Viewing historical data without affecting API rate limits
+- Running the tool in environments where API access is restricted
+
+When using `--dbonly`:
+- The tool will only use data that exists in the database
+- If no data exists for the current date, an error will be shown
+- No new data will be fetched from the GitHub API
+- The tool will run faster since it doesn't need to make API calls
+
+Note: You must have previously run the tool without `--dbonly` to have data in the database.
 
 ## Output
 

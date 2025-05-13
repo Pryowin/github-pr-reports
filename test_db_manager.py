@@ -172,4 +172,40 @@ def test_schema_migration(db_manager):
 
 def test_get_nonexistent_stats(db_manager):
     result = db_manager.get_latest_stats('nonexistent-repo')
-    assert result is None 
+    assert result is None
+
+def test_get_stats_for_date():
+    db = DatabaseManager()
+    
+    # Create test data
+    test_stats = PRStats(
+        total_prs=5,
+        avg_age_days=7.2,
+        avg_age_days_excluding_oldest=5.1,
+        avg_comments=3.4,
+        avg_comments_with_comments=4.2,
+        approved_prs=1,
+        oldest_pr_age=15,
+        oldest_pr_title='Test PR',
+        prs_with_zero_comments=2
+    )
+    
+    # Save stats for a specific date
+    test_date = '2024-03-21'
+    db.save_stats('test-repo', test_stats, test_date)
+    
+    # Get stats for that date
+    stats = db.get_stats_for_date('test-repo', test_date)
+    assert stats is not None
+    assert stats['total_prs'] == 5
+    assert stats['avg_age_days'] == 7.2
+    assert stats['avg_comments'] == 3.4
+    assert stats['approved_prs'] == 1
+    
+    # Test with non-existent date
+    stats = db.get_stats_for_date('test-repo', '2024-03-22')
+    assert stats is None
+    
+    # Test with non-existent repo
+    stats = db.get_stats_for_date('nonexistent-repo', test_date)
+    assert stats is None 
