@@ -230,9 +230,21 @@ class PRReporter:
         # Adjust layout
         plt.tight_layout()
         
+        # Create graphs directory if it doesn't exist
+        graphs_dir = 'graphs'
+        os.makedirs(graphs_dir, exist_ok=True)
+        
+        # Generate filename based on repo, date range, and current date
+        current_date = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+        base_name = f"{repo_name}_pr_trends" if repo_name else "all_repos_pr_trends"
+        filename = f"{base_name}_{current_date}.png"
+        filepath = os.path.join(graphs_dir, filename)
+        
         # Save the graph
-        plt.savefig('pr_trends.png')
+        plt.savefig(filepath)
         plt.close()
+        
+        return filepath  # Return the path where the graph was saved
 
 def main():
     # Clear console
@@ -423,8 +435,8 @@ github:
         
         if args.graph:
             # Generate graph without running API queries
-            reporter.generate_graph(days=args.days, repo_name=args.repo)
-            print(f"\nGraph has been saved as 'pr_trends.png'")
+            graph_path = reporter.generate_graph(days=args.days, repo_name=args.repo)
+            print(f"\nGraph has been saved as '{graph_path}'")
             return  # Exit after generating graph
         
         # Generate report as usual

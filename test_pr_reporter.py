@@ -4,6 +4,7 @@ from unittest.mock import Mock, patch
 from pr_reporter import PRReporter, PRStats, PRDetail
 from pr_reporter import PRStats as ReporterPRStats
 from db_manager import PRStats as DBPRStats
+import os
 
 @pytest.fixture
 def mock_config():
@@ -486,4 +487,47 @@ def test_graph_generation_invalid_repo(mock_config, mock_github, mock_db):
     
     # Test with non-existent repository
     with pytest.raises(ValueError):
-        reporter.generate_graph(days=2, repo_name='nonexistent-repo') 
+        reporter.generate_graph(days=2, repo_name='nonexistent-repo')
+
+def test_graph_generation_filename_format(mock_config, mock_github, mock_db):
+    github_client, mock_org = mock_github
+    reporter = PRReporter(mock_config, github_client=github_client)
+    
+    # Mock database response
+    mock_stats = [
+        {
+            'date': '2024-03-19',
+            'total_prs': 5,
+            'avg_age_days': 7.2,
+            'avg_age_days_excluding_oldest': 5.1,
+            'avg_comments': 3.4,
+            'avg_comments_with_comments': 4.2,
+            'approved_prs': 1,
+            'oldest_pr_age': 15,
+            'oldest_pr_title': 'Test PR',
+            'prs_with_zero_comments': 2
+        }
+    ]
+    
+    # Mock datetime.now to return a fixed date
+    with patch('pr_reporter.datetime') as mock_datetime:
+        mock_datetime.now.return_value = datetime(2024, 3, 21, tzinfo=timezone.utc)
+        mock_datetime.strptime = datetime.strptime  # Keep the original strptime
+        
+        with patch.object(reporter.db, 'get_stats_in_date_range', return_value=mock_stats):
+            # Test single repo graph
+            filepath = reporter.generate_graph(days=2, repo_name='repo1')
+            assert filepath == 'graphs/repo1_pr_trends_2024-03-21.png'
+            
+            # Test all repos graph
+            filepath = reporter.generate_graph(days=2)
+            assert filepath == 'graphs/all_repos_pr_trends_2024-03-21.png'
+            
+            # Verify the graphs directory was created
+            assert os.path.exists('graphs')
+            
+            # Clean up
+            if os.path.exists('graphs'):
+                for file in os.listdir('graphs'):
+                    os.remove(os.path.join('graphs', file))
+                os.rmdir('graphs') 

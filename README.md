@@ -92,7 +92,10 @@ The `--graph` option generates a line graph showing the trend of open PRs over t
 - Includes markers for each data point
 - Has a grid for better readability
 - Includes a legend identifying each repository
-- Saves the output as 'pr_trends.png' in the current directory
+- Saves the output in the `graphs` directory with a descriptive filename:
+  - `all_repos_pr_trends_YYYY-MM-DD.png` for graphs showing all repositories
+  - `{repo_name}_pr_trends_YYYY-MM-DD.png` for single repository graphs
+  (where YYYY-MM-DD is the current date)
 
 Options for graph generation:
 - `--graph`: Generate a graph showing all repositories
