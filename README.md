@@ -46,6 +46,8 @@ Analyzes closed PRs in your repositories over a specified time period.
 - Calculates average time PRs were open
 - Computes standard deviation of PR open times
 - Provides per-repository and overall statistics
+- Optional tracking of PRs by specific user email
+- Debug mode for detailed PR information
 
 #### Usage:
 ```bash
@@ -57,6 +59,15 @@ python closed_pr_analyzer.py --days 14
 
 # Use a different config file
 python closed_pr_analyzer.py --config custom_config.yaml
+
+# Track PRs by specific user
+python closed_pr_analyzer.py --user user@example.com
+
+# Show detailed PR information
+python closed_pr_analyzer.py --debug
+
+# Combine options
+python closed_pr_analyzer.py --debug --user user@example.com --days 14
 ```
 
 ## Configuration
