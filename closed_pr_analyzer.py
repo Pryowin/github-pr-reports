@@ -47,6 +47,7 @@ class ClosedPRAnalyzer:
         prs = list(repo.get_pulls(state='closed', sort='updated', direction='desc'))
         closed_prs = []
         user_closed_prs = []
+        user_stats = {}  # login -> list of PR ages
         
         if self.debug:
             print(f"\nDetailed PR Information for {repo_name}:")
@@ -63,18 +64,22 @@ class ClosedPRAnalyzer:
             age_days = (pr.closed_at - pr.created_at).total_seconds() / (24 * 3600)
             closed_prs.append(age_days)
             
+            author_login = pr.user.login if pr.user and pr.user.login is not None else 'N/A'
             if self.debug:
                 # Handle potential None values
                 pr_number = pr.number if pr.number is not None else 'N/A'
                 created_at = pr.created_at.strftime('%Y-%m-%d %H:%M') if pr.created_at is not None else 'N/A'
                 closed_at = pr.closed_at.strftime('%Y-%m-%d %H:%M') if pr.closed_at is not None else 'N/A'
-                author_login = pr.user.login if pr.user and pr.user.login is not None else 'N/A'
-                
                 print(f"{pr_number:<6} {created_at:<20} {closed_at:<20} "
                       f"{age_days:.1f} days    {author_login:<30}")
             
-            # If user email is specified, check if this PR was created by that user
-            if self.user_login and pr.user and pr.user.login == self.user_login:
+            # Per-user stats for all
+            if self.user_login == 'all':
+                if author_login not in user_stats:
+                    user_stats[author_login] = []
+                user_stats[author_login].append(age_days)
+            # If user login is specified, check if this PR was created by that user
+            elif self.user_login and pr.user and pr.user.login == self.user_login:
                 user_closed_prs.append(age_days)
         
         if not closed_prs:
@@ -86,7 +91,8 @@ class ClosedPRAnalyzer:
                 'std_dev_days': 0,
                 'user_total_closed': 0,
                 'user_avg_days_open': 0,
-                'user_std_dev_days': 0
+                'user_std_dev_days': 0,
+                'user_stats': {} if self.user_login == 'all' else None
             }
         
         self._print_progress(f"Found {len(closed_prs)} closed PRs.\n")
@@ -98,7 +104,8 @@ class ClosedPRAnalyzer:
             'std_dev_days': stdev(closed_prs) if len(closed_prs) > 1 else 0,
             'user_total_closed': len(user_closed_prs),
             'user_avg_days_open': mean(user_closed_prs) if user_closed_prs else 0,
-            'user_std_dev_days': stdev(user_closed_prs) if len(user_closed_prs) > 1 else 0
+            'user_std_dev_days': stdev(user_closed_prs) if len(user_closed_prs) > 1 else 0,
+            'user_stats': user_stats if self.user_login == 'all' else None
         }
         
         return result
@@ -131,6 +138,9 @@ Examples:
 
   Track PRs by specific user:
     python closed_pr_analyzer.py --user githubusername
+
+  Show per-user stats for all users:
+    python closed_pr_analyzer.py --user all
 
   Show detailed PR information:
     python closed_pr_analyzer.py --debug
@@ -203,9 +213,10 @@ Examples:
             print("=" * 50)
             
             total_closed = 0
-            all_days = []
+            all_days = []  # Will store individual PR durations
             user_total_closed = 0
             user_all_days = []
+            overall_user_stats = {}  # For all
             
             for repo_name, stats in report.items():
                 print(f"\nRepository: {repo_name}")
@@ -214,7 +225,19 @@ Examples:
                     print(f"Average Days Open: {stats['avg_days_open']:.1f}")
                     print(f"Standard Deviation: {stats['std_dev_days']:.1f}")
                 
-                if args.user:
+                if args.user == 'all' and stats['user_stats']:
+                    print("\nPer-user statistics:")
+                    print(f"{'User':<25} {'Closed PRs':<12} {'Avg Days Open':<15} {'Std Dev':<10}")
+                    print("-" * 65)
+                    for user, ages in sorted(stats['user_stats'].items()):
+                        avg = mean(ages)
+                        std = stdev(ages) if len(ages) > 1 else 0
+                        print(f"{user:<25} {len(ages):<12} {avg:<15.2f} {std:<10.2f}")
+                        # Aggregate for overall
+                        if user not in overall_user_stats:
+                            overall_user_stats[user] = []
+                        overall_user_stats[user].extend(ages)
+                elif args.user:
                     print(f"\nStatistics for {args.user}:")
                     print(f"Closed PRs: {stats['user_total_closed']}")
                     if stats['user_total_closed'] > 0:
@@ -222,8 +245,16 @@ Examples:
                         print(f"Standard Deviation: {stats['user_std_dev_days']:.1f}")
                 
                 total_closed += stats['total_closed']
-                if stats['total_closed'] > 0:
-                    all_days.extend([stats['avg_days_open']] * stats['total_closed'])
+                # Get the actual PR durations from the repository
+                repo = self.org.get_repo(repo_name)
+                end_date = datetime.now(timezone.utc)
+                start_date = end_date - timedelta(days=self.days)
+                prs = list(repo.get_pulls(state='closed', sort='updated', direction='desc'))
+                for pr in prs:
+                    if pr.closed_at < start_date:
+                        break
+                    age_days = (pr.closed_at - pr.created_at).total_seconds() / (24 * 3600)
+                    all_days.append(age_days)
                 
                 user_total_closed += stats['user_total_closed']
                 if stats['user_total_closed'] > 0:
@@ -236,7 +267,15 @@ Examples:
                 print(f"Overall Average Days Open: {mean(all_days):.1f}")
                 print(f"Overall Standard Deviation: {stdev(all_days):.1f}")
             
-            if args.user:
+            if args.user == 'all' and overall_user_stats:
+                print("\nOverall per-user statistics:")
+                print(f"{'User':<25} {'Closed PRs':<12} {'Avg Days Open':<15} {'Std Dev':<10}")
+                print("-" * 65)
+                for user, ages in sorted(overall_user_stats.items()):
+                    avg = mean(ages)
+                    std = stdev(ages) if len(ages) > 1 else 0
+                    print(f"{user:<25} {len(ages):<12} {avg:<15.2f} {std:<10.2f}")
+            elif args.user:
                 print(f"\nOverall Statistics for {args.user}")
                 print(f"Total Closed PRs: {user_total_closed}")
                 if user_all_days:
