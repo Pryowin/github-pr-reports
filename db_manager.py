@@ -14,6 +14,7 @@ class PRStats:
     oldest_pr_age: int
     oldest_pr_title: str
     prs_with_zero_comments: int
+    reopened_prs: int
 
 class DatabaseManager:
     def __init__(self, db_path: str = 'pr_stats.db'):
@@ -45,6 +46,7 @@ class DatabaseManager:
                 oldest_pr_age INTEGER,
                 oldest_pr_title TEXT,
                 prs_with_zero_comments INTEGER,
+                reopened_prs INTEGER,
                 PRIMARY KEY (repo_name, date)
             )
         ''')
@@ -69,6 +71,8 @@ class DatabaseManager:
             cursor.execute('ALTER TABLE pr_stats ADD COLUMN oldest_pr_title TEXT DEFAULT ""')
         if 'prs_with_zero_comments' not in columns:
             cursor.execute('ALTER TABLE pr_stats ADD COLUMN prs_with_zero_comments INTEGER DEFAULT 0')
+        if 'reopened_prs' not in columns:
+            cursor.execute('ALTER TABLE pr_stats ADD COLUMN reopened_prs INTEGER DEFAULT 0')
         
         self.conn.commit()
 
@@ -83,13 +87,13 @@ class DatabaseManager:
                 repo_name, date, total_prs, avg_age_days, 
                 avg_age_days_excluding_oldest, avg_comments, 
                 avg_comments_with_comments, approved_prs, 
-                oldest_pr_age, oldest_pr_title, prs_with_zero_comments
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                oldest_pr_age, oldest_pr_title, prs_with_zero_comments, reopened_prs
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             repo_name, date, stats.total_prs, stats.avg_age_days,
             stats.avg_age_days_excluding_oldest, stats.avg_comments,
             stats.avg_comments_with_comments, stats.approved_prs,
-            stats.oldest_pr_age, stats.oldest_pr_title, stats.prs_with_zero_comments
+            stats.oldest_pr_age, stats.oldest_pr_title, stats.prs_with_zero_comments, stats.reopened_prs
         ))
         self.conn.commit()
 
@@ -100,7 +104,7 @@ class DatabaseManager:
             SELECT repo_name, date, total_prs, avg_age_days, 
                    avg_age_days_excluding_oldest, avg_comments, 
                    avg_comments_with_comments, approved_prs, 
-                   oldest_pr_age, oldest_pr_title, prs_with_zero_comments
+                   oldest_pr_age, oldest_pr_title, prs_with_zero_comments, reopened_prs
             FROM pr_stats 
             WHERE repo_name = ? 
             ORDER BY date DESC 
@@ -121,7 +125,8 @@ class DatabaseManager:
             'approved_prs': float(row[7]),
             'oldest_pr_age': float(row[8]),
             'oldest_pr_title': row[9],
-            'prs_with_zero_comments': float(row[10])
+            'prs_with_zero_comments': float(row[10]),
+            'reopened_prs': float(row[11]) if len(row) > 11 else 0
         }
 
     def get_stats_before_date(self, repo_name: str, target_date: datetime) -> Optional[Dict]:
@@ -131,7 +136,7 @@ class DatabaseManager:
             SELECT repo_name, date, total_prs, avg_age_days, 
                    avg_age_days_excluding_oldest, avg_comments, 
                    avg_comments_with_comments, approved_prs, 
-                   oldest_pr_age, oldest_pr_title, prs_with_zero_comments
+                   oldest_pr_age, oldest_pr_title, prs_with_zero_comments, reopened_prs
             FROM pr_stats
             WHERE repo_name = ? AND date < ?
             ORDER BY date DESC
@@ -152,7 +157,8 @@ class DatabaseManager:
             'approved_prs': float(row[7]),
             'oldest_pr_age': float(row[8]),
             'oldest_pr_title': row[9],
-            'prs_with_zero_comments': float(row[10])
+            'prs_with_zero_comments': float(row[10]),
+            'reopened_prs': float(row[11]) if len(row) > 11 else 0
         }
 
     def get_earliest_stats(self, repo_name: str) -> Optional[Dict]:
@@ -162,7 +168,7 @@ class DatabaseManager:
             SELECT repo_name, date, total_prs, avg_age_days, 
                    avg_age_days_excluding_oldest, avg_comments, 
                    avg_comments_with_comments, approved_prs, 
-                   oldest_pr_age, oldest_pr_title, prs_with_zero_comments
+                   oldest_pr_age, oldest_pr_title, prs_with_zero_comments, reopened_prs
             FROM pr_stats
             WHERE repo_name = ?
             ORDER BY date ASC
@@ -183,7 +189,8 @@ class DatabaseManager:
             'approved_prs': float(row[7]),
             'oldest_pr_age': float(row[8]),
             'oldest_pr_title': row[9],
-            'prs_with_zero_comments': float(row[10])
+            'prs_with_zero_comments': float(row[10]),
+            'reopened_prs': float(row[11]) if len(row) > 11 else 0
         }
 
     def get_stats_in_date_range(self, repo_name: str, start_date: datetime, end_date: datetime) -> List[Dict]:
@@ -193,7 +200,7 @@ class DatabaseManager:
             SELECT repo_name, date, total_prs, avg_age_days, 
                    avg_age_days_excluding_oldest, avg_comments, 
                    avg_comments_with_comments, approved_prs, 
-                   oldest_pr_age, oldest_pr_title, prs_with_zero_comments
+                   oldest_pr_age, oldest_pr_title, prs_with_zero_comments, reopened_prs
             FROM pr_stats 
             WHERE repo_name = ? 
             AND date BETWEEN ? AND ?
@@ -213,7 +220,8 @@ class DatabaseManager:
                 'approved_prs': float(row[7]),
                 'oldest_pr_age': float(row[8]),
                 'oldest_pr_title': row[9],
-                'prs_with_zero_comments': float(row[10])
+                'prs_with_zero_comments': float(row[10]),
+                'reopened_prs': float(row[11]) if len(row) > 11 else 0
             }
             stats_list.append(stats)
         return stats_list
@@ -225,7 +233,7 @@ class DatabaseManager:
             SELECT repo_name, date, total_prs, avg_age_days, 
                    avg_age_days_excluding_oldest, avg_comments, 
                    avg_comments_with_comments, approved_prs, 
-                   oldest_pr_age, oldest_pr_title, prs_with_zero_comments
+                   oldest_pr_age, oldest_pr_title, prs_with_zero_comments, reopened_prs
             FROM pr_stats 
             WHERE repo_name = ? 
             AND date = ?
@@ -245,5 +253,6 @@ class DatabaseManager:
             'approved_prs': float(row[7]),
             'oldest_pr_age': float(row[8]),
             'oldest_pr_title': row[9],
-            'prs_with_zero_comments': float(row[10])
+            'prs_with_zero_comments': float(row[10]),
+            'reopened_prs': float(row[11]) if len(row) > 11 else 0
         } 

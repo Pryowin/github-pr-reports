@@ -37,6 +37,7 @@ class PRStats:
     oldest_pr_age: int
     oldest_pr_title: str
     prs_with_zero_comments: int
+    reopened_prs: int
     # Not stored in DB, only used in verbose mode
     zero_comment_prs: List[PRDetail] = None
 
@@ -97,7 +98,7 @@ class PRReporter:
             # Convert numeric values to float
             for key in ['total_prs', 'avg_age_days', 'avg_age_days_excluding_oldest', 
                        'avg_comments', 'avg_comments_with_comments', 'approved_prs', 
-                       'oldest_pr_age', 'prs_with_zero_comments']:
+                       'oldest_pr_age', 'prs_with_zero_comments', 'reopened_prs']:
                 if key in stats:
                     stats[key] = float(stats[key])
             
@@ -123,6 +124,7 @@ class PRReporter:
                 oldest_pr_age=int(stats['oldest_pr_age']),
                 oldest_pr_title=str(stats['oldest_pr_title']),
                 prs_with_zero_comments=int(stats['prs_with_zero_comments']),
+                reopened_prs=int(stats.get('reopened_prs', 0)),
                 zero_comment_prs=[]  # Not stored in DB
             )
 
@@ -142,6 +144,7 @@ class PRReporter:
                 oldest_pr_age=0,
                 oldest_pr_title="",
                 prs_with_zero_comments=0,
+                reopened_prs=0,
                 zero_comment_prs=[]
             )
             self.db.save_stats(repo_name, stats)
@@ -156,6 +159,7 @@ class PRReporter:
         oldest_pr_title = ""
         prs_with_zero_comments = 0
         zero_comment_prs = []
+        reopened_count = 0
 
         for i, pr in enumerate(prs, 1):
             self._print_progress(f"\rProcessing PR {i}/{len(prs)}... ")
@@ -188,6 +192,17 @@ class PRReporter:
             reviews = pr.get_reviews()
             if any(review.state == 'APPROVED' for review in reviews):
                 approved += 1
+            
+            # Check if PR has been reopened by looking at timeline events
+            try:
+                timeline = pr.get_issue_events()
+                for event in timeline:
+                    if hasattr(event, 'event') and event.event == 'reopened':
+                        reopened_count += 1
+                        break  # Only count once per PR
+            except Exception:
+                # If we can't get timeline events, skip reopened count for this PR
+                pass
 
         # Calculate average excluding oldest PR
         if len(ages) > 1:
@@ -208,6 +223,7 @@ class PRReporter:
             oldest_pr_age=oldest_pr_age,
             oldest_pr_title=oldest_pr_title,
             prs_with_zero_comments=prs_with_zero_comments,
+            reopened_prs=reopened_count,
             zero_comment_prs=sorted(zero_comment_prs, key=lambda x: x.age_days, reverse=True) if self.verbose else None
         )
         self.db.save_stats(repo_name, stats)
@@ -502,6 +518,7 @@ github:
                 print(f"Average Comments (PRs with comments): {reporter._format_comparison(stats.avg_comments_with_comments, comparison_stats['avg_comments_with_comments'])}")
                 print(f"PRs with Zero Comments: {reporter._format_comparison(stats.prs_with_zero_comments, comparison_stats['prs_with_zero_comments'], '{:.0f}')}")
                 print(f"Approved PRs: {reporter._format_comparison(stats.approved_prs, comparison_stats['approved_prs'], '{:.0f}')}")
+                print(f"Reopened PRs: {reporter._format_comparison(stats.reopened_prs, comparison_stats.get('reopened_prs', 0), '{:.0f}')}")
                 print(f"\nComparison date: {comparison_stats['date']}")
             else:
                 print(f"Total Open PRs: {stats.total_prs}")
@@ -511,6 +528,7 @@ github:
                 print(f"Average Comments (PRs with comments): {stats.avg_comments_with_comments:.1f}")
                 print(f"PRs with Zero Comments: {stats.prs_with_zero_comments}")
                 print(f"Approved PRs: {stats.approved_prs}")
+                print(f"Reopened PRs: {stats.reopened_prs}")
 
             if stats.oldest_pr_age > 0:
                 print(f"Oldest PR: {stats.oldest_pr_title} ({stats.oldest_pr_age} days old)")
@@ -535,6 +553,7 @@ github:
                 print(f"Average Comments (PRs with comments): {prev_stats['avg_comments_with_comments']:.1f}")
                 print(f"PRs with Zero Comments: {prev_stats['prs_with_zero_comments']}")
                 print(f"Approved PRs: {prev_stats['approved_prs']}")
+                print(f"Reopened PRs: {prev_stats.get('reopened_prs', 0)}")
                 if prev_stats['oldest_pr_age'] > 0:
                     print(f"Oldest PR: {prev_stats['oldest_pr_title']} ({prev_stats['oldest_pr_age']} days old)")
 
