@@ -48,6 +48,7 @@ class ClosedPRAnalyzer:
         closed_prs = []
         user_closed_prs = []
         user_stats = {}  # login -> list of PR ages
+        reopened_count = 0
         
         if self.debug:
             print(f"\nDetailed PR Information for {repo_name}:")
@@ -63,6 +64,18 @@ class ClosedPRAnalyzer:
             # Calculate how long the PR was open
             age_days = (pr.closed_at - pr.created_at).total_seconds() / (24 * 3600)
             closed_prs.append(age_days)
+            
+            # Check if PR was reopened during the period
+            try:
+                timeline = pr.get_issue_events()
+                for event in timeline:
+                    if (hasattr(event, 'event') and event.event == 'reopened' and 
+                        event.created_at >= start_date and event.created_at <= end_date):
+                        reopened_count += 1
+                        break  # Only count once per PR
+            except Exception:
+                # If we can't get timeline events, skip reopened count for this PR
+                pass
             
             author_login = pr.user.login if pr.user and pr.user.login is not None else 'N/A'
             if self.debug:
@@ -92,7 +105,8 @@ class ClosedPRAnalyzer:
                 'user_total_closed': 0,
                 'user_avg_days_open': 0,
                 'user_std_dev_days': 0,
-                'user_stats': {} if self.user_login == 'all' else None
+                'user_stats': {} if self.user_login == 'all' else None,
+                'reopened_count': 0
             }
         
         self._print_progress(f"Found {len(closed_prs)} closed PRs.\n")
@@ -105,7 +119,8 @@ class ClosedPRAnalyzer:
             'user_total_closed': len(user_closed_prs),
             'user_avg_days_open': mean(user_closed_prs) if user_closed_prs else 0,
             'user_std_dev_days': stdev(user_closed_prs) if len(user_closed_prs) > 1 else 0,
-            'user_stats': user_stats if self.user_login == 'all' else None
+            'user_stats': user_stats if self.user_login == 'all' else None,
+            'reopened_count': reopened_count
         }
         
         return result
@@ -136,10 +151,12 @@ class ClosedPRAnalyzer:
             user_total_closed = 0
             user_all_days = []
             overall_user_stats = {}  # For all
+            total_reopened = 0
             
             for repo_name, stats in report.items():
                 print(f"\nRepository: {repo_name}")
                 print(f"Total Closed PRs: {stats['total_closed']}")
+                print(f"Reopened PRs: {stats['reopened_count']}")
                 if stats['total_closed'] > 0:
                     print(f"Average Days Open: {stats['avg_days_open']:.1f}")
                     print(f"Standard Deviation: {stats['std_dev_days']:.1f}")
@@ -178,10 +195,13 @@ class ClosedPRAnalyzer:
                 user_total_closed += stats['user_total_closed']
                 if stats['user_total_closed'] > 0:
                     user_all_days.extend([stats['user_avg_days_open']] * stats['user_total_closed'])
+                
+                total_reopened += stats['reopened_count']
             
             print("\nOverall Statistics")
             print("-" * 50)
             print(f"Total Closed PRs: {total_closed}")
+            print(f"Total Reopened PRs: {total_reopened}")
             if all_days:
                 print(f"Overall Average Days Open: {mean(all_days):.1f}")
                 print(f"Overall Standard Deviation: {stdev(all_days):.1f}")

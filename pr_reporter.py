@@ -18,6 +18,7 @@ import matplotlib.dates as mdates
 class Colors:
     RED = '\033[91m'
     GREEN = '\033[92m'
+    YELLOW = '\033[93m'
     WHITE = '\033[0m'
     RESET = '\033[0m'
 
@@ -25,6 +26,13 @@ class PRDetail(NamedTuple):
     title: str
     age_days: int
     url: str
+
+class PRNoUpdateDetail(NamedTuple):
+    title: str
+    last_comment_days: int
+    url: str
+    is_approved: bool
+    is_draft: bool
 
 @dataclass
 class PRStats:
@@ -40,9 +48,10 @@ class PRStats:
     reopened_prs: int
     # Not stored in DB, only used in verbose mode
     zero_comment_prs: List[PRDetail] = None
+    no_update_prs: List[PRNoUpdateDetail] = None
 
 class PRReporter:
-    def __init__(self, config: Union[str, Dict], verbose: bool = False, min_age_days: int = 0, compare_days: int = None, github_client=None, dbonly: bool = False):
+    def __init__(self, config: Union[str, Dict], verbose: bool = False, min_age_days: int = 0, compare_days: int = None, github_client=None, dbonly: bool = False, no_update_days: int = None):
         if isinstance(config, str):
             with open(config, 'r') as f:
                 self.config = yaml.safe_load(f)
@@ -53,6 +62,7 @@ class PRReporter:
         self.min_age_days = min_age_days
         self.compare_days = compare_days
         self.dbonly = dbonly
+        self.no_update_days = no_update_days
         
         if not dbonly:
             if github_client is None:
@@ -104,6 +114,48 @@ class PRReporter:
             
         return stats
 
+    def _get_last_comment_date(self, pr) -> datetime:
+        """Get the date of the last comment on a PR."""
+        try:
+            # Get all types of comments on the PR
+            all_comments = []
+            
+            # Get issue comments
+            try:
+                issue_comments = list(pr.get_issue_comments())
+                all_comments.extend(issue_comments)
+            except Exception:
+                pass
+            
+            # Get review comments
+            try:
+                review_comments = list(pr.get_review_comments())
+                all_comments.extend(review_comments)
+            except Exception:
+                pass
+            
+            # Get commit comments
+            try:
+                commits = list(pr.get_commits())
+                for commit in commits:
+                    try:
+                        commit_comments_list = list(commit.get_comments())
+                        all_comments.extend(commit_comments_list)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+            
+            if all_comments:
+                # Return the most recent comment date
+                return max(comment.created_at for comment in all_comments)
+            else:
+                # No comments, return PR creation date
+                return pr.created_at
+        except Exception:
+            # If we can't get comments, return PR creation date
+            return pr.created_at
+
     def get_repo_stats(self, repo_name: str) -> PRStats:
         """Get statistics for a repository, either from API or database."""
         self._print_progress(f"\nAnalyzing {repo_name}... ")
@@ -125,7 +177,8 @@ class PRReporter:
                 oldest_pr_title=str(stats['oldest_pr_title']),
                 prs_with_zero_comments=int(stats['prs_with_zero_comments']),
                 reopened_prs=int(stats.get('reopened_prs', 0)),
-                zero_comment_prs=[]  # Not stored in DB
+                zero_comment_prs=[],  # Not stored in DB
+                no_update_prs=[]  # Not stored in DB
             )
 
         # Regular API-based flow
@@ -145,7 +198,8 @@ class PRReporter:
                 oldest_pr_title="",
                 prs_with_zero_comments=0,
                 reopened_prs=0,
-                zero_comment_prs=[]
+                zero_comment_prs=[],
+                no_update_prs=[]
             )
             self.db.save_stats(repo_name, stats)
             return stats
@@ -159,6 +213,7 @@ class PRReporter:
         oldest_pr_title = ""
         prs_with_zero_comments = 0
         zero_comment_prs = []
+        no_update_prs = []
         reopened_count = 0
 
         for i, pr in enumerate(prs, 1):
@@ -187,6 +242,29 @@ class PRReporter:
                     zero_comment_prs.append(PRDetail(pr.title, age_days, pr.html_url))
             else:
                 comments_with_comments.append(comment_count)
+            
+            # Check for PRs with no recent updates
+            if self.no_update_days is not None:
+                # Skip PRs with "DO NOT MERGE" tag
+                has_do_not_merge = any(label.name == "DO NOT MERGE" for label in pr.labels)
+                if has_do_not_merge:
+                    continue
+                    
+                last_comment_date = self._get_last_comment_date(pr)
+                days_since_last_comment = (now - last_comment_date).days
+                
+                # Get the last push date
+                last_push_date = pr.updated_at  # This is the last time the PR was updated (includes pushes)
+                days_since_last_push = (now - last_push_date).days
+                
+                # Only include PRs where both last comment AND last push are older than threshold
+                if days_since_last_comment >= self.no_update_days and days_since_last_push >= self.no_update_days:
+                    # Check if PR is approved
+                    reviews = pr.get_reviews()
+                    is_approved = any(review.state == 'APPROVED' for review in reviews)
+                    # Check if PR is draft
+                    is_draft = pr.draft
+                    no_update_prs.append(PRNoUpdateDetail(pr.title, days_since_last_comment, pr.html_url, is_approved, is_draft))
             
             # Check if PR is approved
             reviews = pr.get_reviews()
@@ -224,7 +302,8 @@ class PRReporter:
             oldest_pr_title=oldest_pr_title,
             prs_with_zero_comments=prs_with_zero_comments,
             reopened_prs=reopened_count,
-            zero_comment_prs=sorted(zero_comment_prs, key=lambda x: x.age_days, reverse=True) if self.verbose else None
+            zero_comment_prs=sorted(zero_comment_prs, key=lambda x: x.age_days, reverse=True) if self.verbose else [],
+            no_update_prs=sorted(no_update_prs, key=lambda x: x.last_comment_days, reverse=True) if self.no_update_days is not None else []
         )
         self.db.save_stats(repo_name, stats)
         self._print_progress("Done!\n")
@@ -318,6 +397,9 @@ Examples:
   Show PRs with no comments that are at least 5 days old:
     python pr_reporter.py -v --min-age 5
 
+  Show PRs with no comment or push activity in the last 30 days:
+    python pr_reporter.py --noupdate 30
+
   Compare with stats from 7 days ago:
     python pr_reporter.py --compare
 
@@ -342,7 +424,7 @@ Examples:
     parser.add_argument(
         '-v', '--verbose',
         action='store_true',
-        help='Show detailed information about PRs with no comments, including their titles and URLs'
+        help='Show detailed information about PRs with no comments and/or no recent updates, including their titles and URLs'
     )
     parser.add_argument(
         '--min-age',
@@ -378,6 +460,11 @@ Examples:
         action='store_true',
         help='Use only database values, do not make API calls. Will show an error if no data exists for current date.'
     )
+    parser.add_argument(
+        '--noupdate',
+        type=int,
+        help='Show PRs that have not received a comment or push in the specified number of days or more. Automatically enables verbose mode to display the list. (e.g., --noupdate 30)'
+    )
     args = parser.parse_args()
 
     if args.min_age < 0:
@@ -388,6 +475,9 @@ Examples:
 
     if args.repo and not args.graph:
         parser.error("--repo can only be used with --graph")
+
+    if args.noupdate is not None and args.noupdate < 0:
+        parser.error("No-update days must be a non-negative integer")
 
     config_path = os.getenv('CONFIG_PATH', args.config)
     if not os.path.exists(config_path):
@@ -489,7 +579,9 @@ github:
             print("3. You have access to these repositories")
             sys.exit(1)
 
-        reporter = PRReporter(config, verbose=args.verbose, min_age_days=args.min_age, compare_days=args.compare, dbonly=args.dbonly)
+        # Auto-enable verbose mode if --noupdate is used, so users can see the PR list
+        verbose_mode = args.verbose or args.noupdate is not None
+        reporter = PRReporter(config, verbose=verbose_mode, min_age_days=args.min_age, compare_days=args.compare, dbonly=args.dbonly, no_update_days=args.noupdate)
         
         if args.graph:
             # Generate graph without running API queries
@@ -556,6 +648,24 @@ github:
                 print(f"Reopened PRs: {prev_stats.get('reopened_prs', 0)}")
                 if prev_stats['oldest_pr_age'] > 0:
                     print(f"Oldest PR: {prev_stats['oldest_pr_title']} ({prev_stats['oldest_pr_age']} days old)")
+
+            # Show details of PRs with no recent updates if --noupdate is set
+            if args.noupdate is not None:
+                if stats.no_update_prs:
+                    print("\nPRs with no recent updates:")
+                    print(f"(showing only PRs with no comment or push in the last {args.noupdate} days or more)")
+                    for pr in stats.no_update_prs:
+                        # Use green color for approved PRs, yellow for draft PRs
+                        if pr.is_approved:
+                            color = Colors.GREEN
+                        elif pr.is_draft:
+                            color = Colors.YELLOW
+                        else:
+                            color = Colors.WHITE
+                        print(f"  - [{pr.last_comment_days} days] {color}{pr.title}{Colors.RESET}")
+                        print(f"    {pr.url}")
+                else:
+                    print(f"\nNo PRs found with no comment or push activity in the last {args.noupdate} days or more.")
 
     except Exception as e:
         print(f"Error: {e}")
